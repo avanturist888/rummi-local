@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Руммикуб — игра на одном устройстве</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Руммикуб для компании: 2–4 игрока по очереди на одном телефоне, полностью офлайн.">
+<meta name="theme-color" content="#0f2a22">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-256.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ЭКРАН НАСТРОЙКИ -->
+<section class="screen" id="screenSetup">
+  <div class="setup-card">
+    <h1 class="logo">Руммикуб</h1>
+    <p class="tagline">Одно устройство, 2–4 игрока, ход за ходом. Без интернета.</p>
+
+    <button class="btn btn-primary btn-wide" id="btnContinue" hidden>Продолжить партию</button>
+
+    <div class="field">
+      <span class="field-label">Сколько игроков</span>
+      <div class="seg" id="countPicker" role="group" aria-label="Количество игроков">
+        <button class="seg-item" data-count="2">2</button>
+        <button class="seg-item is-active" data-count="3">3</button>
+        <button class="seg-item" data-count="4">4</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Имена</span>
+      <div id="nameInputs" class="names"></div>
+    </div>
+
+    <button class="btn btn-primary btn-wide" id="btnStart">Начать партию</button>
+    <button class="btn btn-ghost btn-wide" id="btnRulesSetup">Как играть</button>
+    <p class="hint-note">Устройство передаётся по кругу: перед своим ходом каждый нажимает «Я готов», чужие фишки при этом скрыты.</p>
+  </div>
+</section>
+
+<!-- ИГРОВОЙ ЭКРАН -->
+<section class="screen" id="screenGame" hidden>
+  <header class="hud">
+    <div class="hud-who">
+      <span class="hud-turn" id="hudName">—</span>
+      <span class="hud-sub" id="hudSub">—</span>
+    </div>
+    <div class="hud-right">
+      <span class="chip" id="hudPool" title="Фишек в мешке">🂠 0</span>
+      <button class="icon-btn" id="btnMenu" aria-label="Меню">☰</button>
+    </div>
+  </header>
+
+  <main class="board" id="board" aria-label="Стол"></main>
+
+  <div class="rack-area">
+    <div class="rack-bar">
+      <span class="rack-title">Ваши фишки <b id="rackCount">0</b></span>
+      <div class="rack-tools">
+        <button class="mini-btn" id="btnSort">Сортировать</button>
+        <button class="mini-btn" id="btnHint">Подсказка</button>
+        <button class="mini-btn" id="btnUndo">Отменить</button>
+      </div>
+    </div>
+    <div class="rack" id="rack"></div>
+  </div>
+
+  <footer class="actions">
+    <button class="btn btn-soft" id="btnToRack">На руку</button>
+    <button class="btn btn-soft" id="btnDraw">Взять фишку</button>
+    <button class="btn btn-primary btn-grow" id="btnEnd">Ход сделан</button>
+  </footer>
+</section>
+
+<!-- ПЕРЕДАЧА УСТРОЙСТВА -->
+<div class="overlay" id="overlayPass" hidden>
+  <div class="overlay-card">
+    <p class="overlay-kicker">Передайте устройство</p>
+    <h2 class="overlay-name" id="passName">Игрок</h2>
+    <p class="overlay-text" id="passInfo">Чужие фишки скрыты. Нажмите, когда будете готовы.</p>
+    <button class="btn btn-primary btn-wide" id="btnReady">Я готов</button>
+  </div>
+</div>
+
+<!-- КОНЕЦ ПАРТИИ -->
+<div class="overlay" id="overlayEnd" hidden>
+  <div class="overlay-card">
+    <p class="overlay-kicker" id="endKicker">Партия окончена</p>
+    <h2 class="overlay-name" id="endName">—</h2>
+    <ul class="score-list" id="scoreList"></ul>
+    <button class="btn btn-primary btn-wide" id="btnNewGame">Новая партия</button>
+  </div>
+</div>
+
+<!-- МЕНЮ -->
+<div class="overlay" id="overlayMenu" hidden>
+  <div class="overlay-card">
+    <h2 class="overlay-name">Меню</h2>
+    <button class="btn btn-soft btn-wide" id="btnResetTurn">Отменить весь ход</button>
+    <button class="btn btn-soft btn-wide" id="btnRulesGame">Как играть</button>
+    <button class="btn btn-soft btn-wide" id="btnQuit">Выйти в начало</button>
+    <button class="btn btn-ghost btn-wide" id="btnCloseMenu">Назад</button>
+  </div>
+</div>
+
+<!-- ПРАВИЛА -->
+<div class="overlay" id="overlayRules" hidden>
+  <div class="overlay-card overlay-scroll">
+    <h2 class="overlay-name">Как играть</h2>
+    <div class="rules">
+      <h3>Цель</h3>
+      <p>Первым выложить все свои фишки на стол.</p>
+
+      <h3>Что такое набор</h3>
+      <p><b>Группа</b> — 3 или 4 фишки одного числа разных цветов: 7🔴 7🔵 7⚫.<br>
+         <b>Ряд</b> — 3 и больше фишек одного цвета подряд: 4🔵 5🔵 6🔵.<br>
+         Джокер заменяет любую фишку.</p>
+
+      <h3>Первый выход</h3>
+      <p>Чтобы начать выкладывать, нужно за один ход собрать наборы минимум на <b>30 очков</b> только из своих фишек. Пока вы не вышли, трогать чужие наборы на столе нельзя.</p>
+
+      <h3>После выхода</h3>
+      <p>Можно добавлять фишки к любым наборам на столе и перестраивать их как угодно — лишь бы к концу хода каждый набор на столе был правильным и хотя бы одна ваша фишка ушла из руки.</p>
+      <p>Фишку, которая уже лежит на столе, забрать на руку нельзя — её можно только переставить в другой набор. Это касается и джокеров.</p>
+
+      <h3>Управление</h3>
+      <p>Нажмите на фишку, чтобы выбрать её (можно несколько). Затем нажмите на набор на столе — фишки переедут туда. Нажатие на «＋ Новый набор» создаст отдельный набор. Кнопка «На руку» вернёт ваши сегодняшние фишки обратно.</p>
+      <p>Нажатие на пустое место внутри набора (когда ничего не выбрано) выделяет весь набор — так его удобно разбирать. Жёлтая точка на фишке означает, что вы выложили её в этом ходу.</p>
+
+      <h3>Если ходить нечем</h3>
+      <p>Нажмите «Взять фишку» — ход перейдёт дальше, а все ваши перестановки отменятся.</p>
+
+      <h3>Счёт</h3>
+      <p>Победитель получает сумму фишек, оставшихся у остальных; каждый остальной — эту сумму со знаком минус. Джокер на руке стоит 30.</p>
+    </div>
+    <button class="btn btn-primary btn-wide" id="btnCloseRules">Понятно</button>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

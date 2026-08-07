@@ -1,0 +1,10 @@
+{
+  "name": "rummi-local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Руммикуб для одного устройства: статический офлайн-сайт для GitHub Pages",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  }
+}

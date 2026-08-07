@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="felt" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#164436"/>
+      <stop offset="1" stop-color="#081914"/>
+    </linearGradient>
+    <linearGradient id="ivory" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#fffdf6"/>
+      <stop offset="0.62" stop-color="#f2e9d6"/>
+      <stop offset="1" stop-color="#e0d3b8"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#felt)"/>
+
+  <g transform="rotate(-7 256 268)">
+    <rect x="108" y="120" width="132" height="180" rx="18" fill="#cdbfa4" opacity="0.55"/>
+  </g>
+
+  <g transform="rotate(5 256 268)">
+    <rect x="152" y="128" width="208" height="278" rx="26" fill="url(#ivory)"/>
+    <ellipse cx="256" cy="376" rx="34" ry="11" fill="#000" opacity="0.08"/>
+    <text x="256" y="308" text-anchor="middle"
+          font-family="Helvetica, Arial, DejaVu Sans, sans-serif"
+          font-size="176" font-weight="bold" fill="#d1373d">13</text>
+  </g>
+</svg>
