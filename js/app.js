@@ -153,6 +153,8 @@ function updateViewportMode() {
   const rotated = portrait && phone && touch;
   document.body.classList.toggle('is-rot', rotated);
   document.body.classList.toggle('land', rotated || (!portrait && h < 620));
+  // Число рядов лотка зависит от ориентации — перерисовываем.
+  if (state && !el.screenGame.hidden) render();
 }
 window.addEventListener('resize', updateViewportMode);
 window.addEventListener('orientationchange', updateViewportMode);
@@ -587,6 +589,34 @@ function renderRack() {
   const drawn = new Set(player.drawn || []);
   for (const tile of G.tilesOf(state, player.rack)) {
     el.rack.appendChild(tileNode(tile, null, null, drawn));
+  }
+  fitRack(player.rack.length);
+}
+
+/**
+ * Все фишки руки должны быть видны разом, без прокрутки: при большой руке
+ * уменьшаем фишки лотка так, чтобы они влезли в отведённые ряды
+ * (2 в ландшафте, 3 в портрете). Ниже 26px не ужимаем — палец должен
+ * попадать; в этом крайнем случае лоток прокручивается.
+ */
+function fitRack(count) {
+  el.rack.style.removeProperty('--tile-w');
+  if (!count) return;
+  const tile = el.rack.querySelector('.tile');
+  if (!tile) return;
+
+  const rows = document.body.classList.contains('land') ? 2 : 3;
+  const perRow = Math.ceil(count / rows);
+  const styles = getComputedStyle(el.rack);
+  const gap = parseFloat(styles.columnGap) || 4;
+  const width =
+    el.rack.clientWidth -
+    (parseFloat(styles.paddingLeft) || 0) -
+    (parseFloat(styles.paddingRight) || 0);
+
+  const fitted = (width - (perRow - 1) * gap) / perRow;
+  if (fitted < tile.offsetWidth) {
+    el.rack.style.setProperty('--tile-w', `${Math.max(26, Math.floor(fitted))}px`);
   }
 }
 

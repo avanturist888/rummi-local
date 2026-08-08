@@ -524,11 +524,7 @@ body.land .actions-main { flex-direction: column; margin-top: auto; }
 body.land .actions-main .btn { width: 100%; }
 
 body.land .rack {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  justify-content: flex-start;
-  max-height: none;
+  max-height: calc(var(--tile-h) * 2 + var(--gap) + 16px);
   padding: 9px 4px 6px;
 }
 
