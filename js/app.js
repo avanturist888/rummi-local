@@ -210,6 +210,9 @@ function loadAutoSkipPref() {
 
 function loadTimerPref() {
   timerSec = Number(localStorage.getItem(TIMER_KEY)) || 0;
+  const options = [...el.timerPicker.children].map((b) => Number(b.dataset.timer));
+  // Сохранённое значение из старого набора вариантов — сбрасываем на «выкл».
+  if (!options.includes(timerSec)) timerSec = 0;
   [...el.timerPicker.children].forEach((b) =>
     b.classList.toggle('is-active', Number(b.dataset.timer) === timerSec)
   );
