@@ -43,9 +43,9 @@
       <span class="field-label">Таймер хода</span>
       <div class="seg" id="timerPicker" role="group" aria-label="Таймер хода">
         <button class="seg-item is-active" data-timer="0">Выкл</button>
+        <button class="seg-item" data-timer="30">30 сек</button>
         <button class="seg-item" data-timer="60">1 мин</button>
         <button class="seg-item" data-timer="120">2 мин</button>
-        <button class="seg-item" data-timer="180">3 мин</button>
       </div>
     </div>
 
@@ -90,15 +90,22 @@
   </div>
 
   <footer class="actions">
-    <div class="actions-minis">
-      <button class="mini-btn" id="btnSort">⇅ цвет</button>
-      <button class="mini-btn" id="btnUndo">Отменить</button>
-      <button class="mini-btn" id="btnToRack">На руку</button>
+    <!-- Работа со своим лотком: отдельная группа в центре. -->
+    <span class="tools-cap">Лоток</span>
+    <div class="rack-tools" role="group" aria-label="Лоток">
+      <button class="tool-btn" id="btnSort"><span class="ico">⇅</span><span id="sortLabel">цвет</span></button>
+      <button class="tool-btn" id="btnUndo"><span class="ico">↩</span>Отменить</button>
+      <button class="tool-btn" id="btnToRack"><span class="ico">↓</span>На руку</button>
     </div>
-    <div class="actions-main">
-      <button class="btn btn-soft" id="btnPlace">Выставить</button>
-      <button class="btn btn-soft" id="btnDraw">Взять фишку</button>
-      <button class="btn btn-primary btn-grow" id="btnEnd">Ход сделан</button>
+    <!-- Три действия хода: у каждого своё лицо. -->
+    <span class="tools-cap tools-cap-turn">Ход</span>
+    <div class="turn-actions">
+      <button class="act act-draw" id="btnDraw"><span class="ico">🂠</span><span id="drawLabel">Взять фишку</span></button>
+      <button class="act act-end" id="btnEnd">
+        <span class="act-line" id="endLabel">Завершить ход</span>
+        <span class="meld-bar" id="meldBar" hidden><i id="meldFill"></i></span>
+      </button>
+      <button class="act act-place" id="btnPlace"><span class="ico">↑</span>Выставить</button>
     </div>
   </footer>
 </section>

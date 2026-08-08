@@ -38,11 +38,16 @@ const el = {
   hudTimer: $('hudTimer'),
   timerPicker: $('timerPicker'),
   btnSort: $('btnSort'),
+  sortLabel: $('sortLabel'),
   btnUndo: $('btnUndo'),
   btnToRack: $('btnToRack'),
   btnPlace: $('btnPlace'),
   btnDraw: $('btnDraw'),
+  drawLabel: $('drawLabel'),
   btnEnd: $('btnEnd'),
+  endLabel: $('endLabel'),
+  meldBar: $('meldBar'),
+  meldFill: $('meldFill'),
   btnFull: $('btnFull'),
   overlayConfirm: $('overlayConfirm'),
   confirmText: $('confirmText'),
@@ -205,6 +210,9 @@ function loadAutoSkipPref() {
 
 function loadTimerPref() {
   timerSec = Number(localStorage.getItem(TIMER_KEY)) || 0;
+  const options = [...el.timerPicker.children].map((b) => Number(b.dataset.timer));
+  // Сохранённое значение из старого набора вариантов — сбрасываем на «выкл».
+  if (!options.includes(timerSec)) timerSec = 0;
   [...el.timerPicker.children].forEach((b) =>
     b.classList.toggle('is-active', Number(b.dataset.timer) === timerSec)
   );
@@ -412,19 +420,24 @@ function render() {
   el.btnDraw.disabled = busy;
   el.btnEnd.disabled = busy || locked;
   el.btnSort.disabled = busy;
-  el.btnSort.textContent = sortMode === 'run' ? '⇅ цвет' : '⇅ число';
-  el.btnDraw.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
-  // До выхода кнопка хода показывает набранную сумму — не надо считать в уме.
-  el.btnEnd.textContent =
-    !busy && !player.melded && !locked
-      ? `Выход: ${playedPoints()} / ${MIN_FIRST_MELD}`
-      : 'Ход сделан';
+  el.sortLabel.textContent = sortMode === 'run' ? 'цвет' : 'число';
+  el.drawLabel.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
+
+  // Кнопка хода загорается зелёным только когда ход реально готов;
+  // до первого выхода она показывает прогресс до 30 очков.
+  const opening = !busy && !player.melded && !locked;
+  const points = opening ? playedPoints() : 0;
+  el.btnEnd.classList.toggle('is-ready', turnReady);
+  el.endLabel.textContent = turnReady
+    ? (opening ? `✓ Выйти: ${points} очк.` : '✓ Завершить ход')
+    : (opening ? `Выход: ${points} / ${MIN_FIRST_MELD}` : 'Завершить ход');
+  el.meldBar.hidden = !opening || turnReady;
+  if (!el.meldBar.hidden) {
+    el.meldFill.style.width = `${Math.min(100, (points / MIN_FIRST_MELD) * 100)}%`;
+  }
 
   // Когда выйти нельзя, единственный осмысленный ход — взять фишку.
-  el.btnDraw.classList.toggle('btn-primary', locked);
-  el.btnDraw.classList.toggle('btn-soft', !locked);
-  el.btnEnd.classList.toggle('btn-primary', turnReady);
-  el.btnEnd.classList.toggle('btn-soft', !turnReady);
+  el.btnDraw.classList.toggle('is-urge', locked);
 
   el.overlayPass.hidden = state.phase !== 'pass';
   if (state.phase === 'pass') renderPass(player);

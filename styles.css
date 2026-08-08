@@ -403,7 +403,7 @@ button { font: inherit; color: inherit; }
   width: 100%;
   flex: none;
 }
-.new-zone.is-armed { border-color: var(--gold); color: var(--gold); }
+.new-zone.is-armed { border-color: var(--pc, var(--gold)); color: var(--pc, var(--gold)); }
 
 /* ---------- фишки ---------- */
 
@@ -495,7 +495,8 @@ button { font: inherit; color: inherit; }
 .combo-bar {
   position: absolute;
   left: 8px;
-  right: 8px;
+  max-width: calc(100% - 16px);
+  width: fit-content;
   bottom: 100%;
   margin-bottom: 5px;
   display: flex;
@@ -538,7 +539,15 @@ button { font: inherit; color: inherit; }
 }
 .rack-empty { color: var(--ink-dim); font-size: 13px; padding: 14px; }
 
-/* ---------- действия ---------- */
+/* ---------- панель действий ---------- */
+/*
+ * Три роли — три лица:
+ *  · группа лотка (сортировка, отмена, на руку) — плоская «таблетка»
+ *    в центре, отдельно от действий хода;
+ *  · «Выставить» — залита цветом игрока, это главное действие раскладки;
+ *  · «Завершить ход» — пунктирная и тусклая, пока ход не готов,
+ *    и зелёная, когда его действительно можно завершить.
+ */
 
 .actions {
   display: flex;
@@ -548,10 +557,111 @@ button { font: inherit; color: inherit; }
   background: rgba(0, 0, 0, 0.4);
   border-top: 1px solid var(--line);
 }
-.actions-minis { display: flex; gap: 7px; }
-.actions-minis .mini-btn { flex: 1; }
-.actions-main { display: flex; gap: 7px; }
-.actions-main .btn { padding: 12px 12px; }
+
+/* Подписи групп — только в боковой панели (ландшафт). */
+.tools-cap { display: none; }
+
+.rack-tools {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  width: fit-content;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 8px 13px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  transition: background 0.12s ease, opacity 0.15s ease;
+}
+.tool-btn:active { background: var(--surface-2); }
+.tool-btn:disabled { opacity: 0.35; }
+.tool-btn .ico { font-size: 14px; color: var(--ink-dim); }
+
+.turn-actions { display: flex; gap: 7px; }
+
+.act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 50px;
+  border: 0;
+  border-radius: 13px;
+  padding: 8px 12px;
+  font-weight: 700;
+  font-size: 14.5px;
+  transition: transform 0.08s ease, opacity 0.15s ease, background 0.15s ease;
+}
+.act:active { transform: scale(0.97); }
+.act:disabled { opacity: 0.4; }
+.act .ico { font-size: 16px; line-height: 1; }
+
+/* «Выставить» — цвет игрока: главное действие раскладки. */
+.act-place {
+  flex: 1;
+  background: var(--pc, var(--gold));
+  color: #201804;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+.act-place:disabled {
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  box-shadow: none;
+}
+
+/* «Взять фишку» — спокойная; подсвечивается, лишь когда это
+   единственный осмысленный ход (первый выход не собирается). */
+.act-draw { flex: 1; background: var(--surface-2); color: var(--ink); }
+.act-draw.is-urge { background: var(--gold); color: #241c04; }
+.act-draw .ico { opacity: 0.8; }
+
+/* «Завершить ход» — до готовности выглядит выключенной. */
+.act-end {
+  flex: 1.15;
+  flex-direction: column;
+  gap: 5px;
+  background: transparent;
+  border: 1.5px dashed var(--line);
+  color: var(--ink-dim);
+}
+.act-end.is-ready {
+  background: var(--ok);
+  border: 0;
+  color: #06301c;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+}
+.act-line { line-height: 1.1; }
+
+/* Прогресс первого выхода до 30 очков. */
+.meld-bar {
+  width: min(120px, 80%);
+  height: 4px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.meld-bar[hidden] { display: none; }
+.meld-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--pc, var(--gold));
+  transition: width 0.2s ease;
+}
 
 /* ---------- горизонтальная раскладка ---------- */
 /*
@@ -584,10 +694,29 @@ body.land .actions {
   border-top: 0;
   border-left: 1px solid var(--line);
   padding: 8px calc(8px + var(--safe-r)) 8px 8px;
+  gap: 5px;
 }
-body.land .actions-minis { flex-direction: column; }
-body.land .actions-main { flex-direction: column; margin-top: auto; }
-body.land .actions-main .btn { width: 100%; }
+/* В боковой панели группы получают подписи и раскладываются в столбик. */
+body.land .tools-cap {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-dim);
+  padding: 2px 6px 0;
+}
+body.land .tools-cap-turn { margin-top: auto; }
+body.land .rack-tools {
+  flex-direction: column;
+  width: 100%;
+  border-radius: 14px;
+  padding: 4px;
+}
+body.land .tool-btn { justify-content: flex-start; width: 100%; border-radius: 10px; }
+body.land .turn-actions { flex-direction: column; }
+body.land .act { width: 100%; flex: none; }
+/* «Выставить» — сверху, ближе к столу и лотку. */
+body.land .act-place { order: -1; }
 
 body.land .rack {
   max-height: calc(var(--tile-h) * 2 + var(--gap) + 16px);
