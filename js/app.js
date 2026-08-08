@@ -130,6 +130,27 @@ function firstMeldOutlook() {
 
 const shortName = (s) => (s.length > 9 ? s.slice(0, 8) + '…' : s);
 
+/* ---------- ориентация ---------- */
+
+/**
+ * Игра всегда ландшафтная. Если телефон держат вертикально
+ * (например, выключен автоповорот), сцена поворачивается на 90°
+ * классом is-rot; сама раскладка включается классом land.
+ */
+function updateViewportMode() {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const portrait = h >= w;
+  const phone = Math.min(w, h) < 620;
+  const touch = window.matchMedia('(pointer: coarse)').matches;
+  const rotated = portrait && phone && touch;
+  document.body.classList.toggle('is-rot', rotated);
+  document.body.classList.toggle('land', rotated || (!portrait && h < 620));
+}
+window.addEventListener('resize', updateViewportMode);
+window.addEventListener('orientationchange', updateViewportMode);
+updateViewportMode();
+
 /* ---------- экран настройки ---------- */
 
 function renderNameInputs() {
@@ -150,6 +171,7 @@ function renderNameInputs() {
 function showSetup() {
   state = null;
   selection.clear();
+  document.body.classList.remove('in-game');
   el.screenGame.hidden = true;
   el.screenSetup.hidden = false;
   el.overlayPass.hidden = true;
@@ -174,6 +196,7 @@ function enterGame() {
   selection.clear();
   hintIds.clear();
   meldCache = null;
+  document.body.classList.add('in-game');
   el.screenSetup.hidden = true;
   el.screenGame.hidden = false;
   el.overlayEnd.hidden = true;

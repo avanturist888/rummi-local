@@ -440,44 +440,70 @@ button { font: inherit; color: inherit; }
 .actions-main { display: flex; gap: 7px; }
 .actions-main .btn { padding: 12px 12px; }
 
-/* ---------- ландшафт на телефоне ---------- */
+/* ---------- горизонтальная раскладка ---------- */
+/*
+ * Класс body.land ставит app.js: либо телефон реально лежит боком,
+ * либо включён принудительный поворот (body.is-rot) — тогда вся сцена
+ * #stage повёрнута на 90° и игра ландшафтная даже при выключенном
+ * автоповороте. Media query здесь не подходит: повёрнутая сцена
+ * по-прежнему живёт в «портретном» окне.
+ */
 
-@media (orientation: landscape) and (max-height: 620px) {
-  :root { --tile-w: clamp(24px, 9.5vh, 40px); }
+body.land { --tile-w: clamp(24px, 9.5vh, 40px); }
+body.land.is-rot { --tile-w: clamp(24px, 9.5vw, 40px); }
 
-  #screenGame:not([hidden]) {
-    display: grid;
-    grid-template:
-      "hud   side" auto
-      "board side" minmax(0, 1fr)
-      "rack  side" auto
-      / minmax(0, 1fr) 176px;
-  }
-  .hud { grid-area: hud; padding-top: 6px; }
-  .board { grid-area: board; }
-  .rack-area { grid-area: rack; }
+body.land #screenGame:not([hidden]) {
+  display: grid;
+  grid-template:
+    "hud   side" auto
+    "board side" minmax(0, 1fr)
+    "rack  side" auto
+    / minmax(0, 1fr) 176px;
+}
+body.land .hud { grid-area: hud; padding-top: 6px; }
+body.land .board { grid-area: board; }
+body.land .rack-area { grid-area: rack; padding-bottom: 4px; }
 
-  .actions {
-    grid-area: side;
-    border-top: 0;
-    border-left: 1px solid var(--line);
-    padding: 8px calc(8px + var(--safe-r)) 8px 8px;
-  }
-  .actions-minis { flex-direction: column; }
-  .actions-main { flex-direction: column; margin-top: auto; }
-  .actions-main .btn { width: 100%; }
+body.land .actions {
+  grid-area: side;
+  border-top: 0;
+  border-left: 1px solid var(--line);
+  padding: 8px calc(8px + var(--safe-r)) 8px 8px;
+}
+body.land .actions-minis { flex-direction: column; }
+body.land .actions-main { flex-direction: column; margin-top: auto; }
+body.land .actions-main .btn { width: 100%; }
 
-  .rack {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    justify-content: flex-start;
-    max-height: none;
-    padding: 9px 4px 6px;
-  }
-  .rack-area { padding-bottom: 4px; }
+body.land .rack {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  justify-content: flex-start;
+  max-height: none;
+  padding: 9px 4px 6px;
+}
 
-  .hud-sub { display: none; }
+body.land .hud-sub { display: none; }
+body.land .zones { grid-template-columns: 1fr 1fr; }
+
+/* Принудительный поворот: телефон вертикально, игра лежит боком.
+   Повёрнутый #stage становится «окном» для всех fixed-элементов внутри. */
+body.in-game.is-rot #stage {
+  position: fixed;
+  top: 0;
+  left: 100vw;
+  left: 100dvw;
+  width: 100vh;
+  width: 100dvh;
+  height: 100vw;
+  height: 100dvw;
+  transform: rotate(90deg);
+  transform-origin: left top;
+  /* Вырезы экрана поворачиваются вместе с ним. */
+  --safe-t: env(safe-area-inset-right, 0px);
+  --safe-r: env(safe-area-inset-bottom, 0px);
+  --safe-b: env(safe-area-inset-left, 0px);
+  --safe-l: env(safe-area-inset-top, 0px);
 }
 
 /* ---------- оверлеи ---------- */

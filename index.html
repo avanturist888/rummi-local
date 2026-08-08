@@ -44,6 +44,10 @@
   </div>
 </section>
 
+<!-- Всё игровое живёт внутри #stage: при вертикальном телефоне
+     сцена целиком поворачивается на 90°, чтобы игра всегда была ландшафтной. -->
+<div id="stage">
+
 <!-- ИГРОВОЙ ЭКРАН -->
 <section class="screen" id="screenGame" hidden>
   <header class="hud">
@@ -150,6 +154,8 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
+
+</div><!-- /stage -->
 
 <script type="module" src="js/app.js"></script>
 </body>
