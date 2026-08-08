@@ -184,6 +184,73 @@ test('после хода игрок запоминает стол — сопе�
   assert.deepEqual(state.players[1].seen, [], 'второй игрок стол ещё не видел');
 });
 
+test('автопропуск прокручивает вынужденные ходы до игрока с выбором', () => {
+  // У первого игрока выхода нет, у второго есть.
+  const state = setup({ racks: [[R(1), B(2), K(3)], [R(11), B(11), K(11)]] });
+  state.phase = 'pass';
+  const poolBefore = state.pool.length;
+
+  const solve = (tiles) => ({
+    reachedTarget: tiles.some((t) => t.num === 11),
+    capped: false,
+  });
+  const skipped = G.autoSkipImpossible(state, solve);
+
+  assert.equal(skipped, 1, 'пропущен ровно один ход');
+  assert.equal(state.turn, 1, 'ход дошёл до второго игрока');
+  assert.equal(state.phase, 'pass');
+  assert.equal(state.players[0].rack.length, 4, 'первому автоматически взята фишка');
+  assert.equal(state.players[0].autoDrawn, 1);
+  assert.equal(state.players[0].drawn.length, 1, 'взятая фишка подсвечена');
+  assert.equal(state.pool.length, poolBefore - 1);
+});
+
+test('автопропуск не трогает игрока, который уже вышел', () => {
+  const state = setup({ racks: [[R(1), B(2)], [O(2)]] });
+  state.players[0].melded = true;
+  state.phase = 'pass';
+
+  const skipped = G.autoSkipImpossible(state, () => ({ reachedTarget: false, capped: false }));
+  assert.equal(skipped, 0);
+  assert.equal(state.turn, 0);
+});
+
+test('автопропуск при пустом мешке доигрывает блокированную партию', () => {
+  const state = setup({ racks: [[R(13), K(13)], [O(2)]] });
+  state.pool = [];
+  state.phase = 'pass';
+
+  G.autoSkipImpossible(state, () => ({ reachedTarget: false, capped: false }));
+  assert.equal(state.phase, 'over', 'оба спасовали — партия окончена');
+  assert.equal(state.winner, 1, 'у второго рука дешевле');
+});
+
+test('подсветка взятых фишек копится при автопропуске и сбрасывается ходом', () => {
+  const state = setup({ racks: [[R(1), B(2)], [R(11), B(11), K(11), O(5)]] });
+  state.phase = 'pass';
+
+  // Два круга автопропуска первого игрока.
+  const solve = (tiles) => ({ reachedTarget: tiles.some((t) => t.num === 11), capped: false });
+  G.autoSkipImpossible(state, solve); // пропуск игрока 1, очередь игрока 2
+  G.beginTurn(state);
+  G.drawAndPass(state); // игрок 2 берёт фишку сам
+  G.autoSkipImpossible(state, solve); // игрок 1 снова пропущен
+
+  assert.equal(state.players[0].drawn.length, 2, 'обе автовзятые фишки подсвечены');
+  assert.equal(state.players[0].autoDrawn, 2);
+
+  // А у второго после настоящего взятия подсвечена ровно одна.
+  assert.equal(state.players[1].drawn.length, 1);
+});
+
+test('на экране передачи видно, как менялись руки: seenRacks пишется при уходе', () => {
+  const state = setup({ racks: [[R(11), B(11), K(11), R(5)], [O(2), O(3)]] });
+  G.moveTiles(state, [R(11), B(11), K(11)], -1);
+  G.endTurn(state);
+
+  assert.deepEqual(state.players[0].seenRacks, [1, 2], 'счётчики зафиксированы после хода');
+});
+
 test('tidyBoard раскладывает ряд по порядку', () => {
   const state = setup({ racks: [[B(3), B(1), B(2)], [O(2)]] });
   G.moveTiles(state, [B(3), B(1), B(2)], -1);

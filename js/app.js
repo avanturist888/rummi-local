@@ -8,8 +8,10 @@ import { COLORS, MIN_FIRST_MELD } from './rules.js';
 import { bestFirstMeld } from './solver.js';
 import { findHint } from './hint.js';
 
-const SAVE_KEY = 'rummikub:save:v4';
+const SAVE_KEY = 'rummikub:save:v5';
 const NAMES_KEY = 'rummikub:names';
+const AUTOSKIP_KEY = 'rummikub:autoskip';
+const SERIES_KEY = 'rummikub:series';
 
 const $ = (id) => document.getElementById(id);
 
@@ -42,7 +44,10 @@ const el = {
   endKicker: $('endKicker'),
   endName: $('endName'),
   scoreList: $('scoreList'),
+  seriesLine: $('seriesLine'),
+  btnSeriesReset: $('btnSeriesReset'),
   btnNewGame: $('btnNewGame'),
+  optAutoSkip: $('optAutoSkip'),
   overlayMenu: $('overlayMenu'),
   overlayRules: $('overlayRules'),
   toast: $('toast'),
@@ -153,6 +158,10 @@ updateViewportMode();
 
 /* ---------- экран настройки ---------- */
 
+function loadAutoSkipPref() {
+  el.optAutoSkip.checked = localStorage.getItem(AUTOSKIP_KEY) !== '0';
+}
+
 function renderNameInputs() {
   const saved = JSON.parse(localStorage.getItem(NAMES_KEY) || '[]');
   const previous = [...el.nameInputs.querySelectorAll('input')].map((i) => i.value);
@@ -178,6 +187,7 @@ function showSetup() {
   el.overlayEnd.hidden = true;
   el.overlayMenu.hidden = true;
   el.btnContinue.hidden = !loadSave();
+  loadAutoSkipPref();
   renderNameInputs();
 }
 
@@ -186,10 +196,17 @@ function startGame() {
     (input, i) => input.value.trim() || `Игрок ${i + 1}`
   );
   localStorage.setItem(NAMES_KEY, JSON.stringify(names));
-  state = G.newGame(names);
+  localStorage.setItem(AUTOSKIP_KEY, el.optAutoSkip.checked ? '1' : '0');
+  state = G.newGame(names, { autoSkip: el.optAutoSkip.checked });
   for (const player of state.players) player.rack = sortRack(player.rack);
   state.startSnapshot = G.snapshot(state);
   enterGame();
+}
+
+/** Прокручивает вынужденные ходы, пока не дойдёт до игрока с выбором. */
+function runAutoSkip() {
+  if (!state.autoSkip || state.phase !== 'pass') return;
+  G.autoSkipImpossible(state, (tiles) => bestFirstMeld(tiles, MIN_FIRST_MELD));
 }
 
 function enterGame() {
@@ -200,6 +217,7 @@ function enterGame() {
   el.screenSetup.hidden = true;
   el.screenGame.hidden = false;
   el.overlayEnd.hidden = true;
+  runAutoSkip();
   save();
   render();
 }
@@ -235,6 +253,11 @@ function render() {
   el.btnSort.disabled = busy;
   el.btnSort.textContent = sortMode === 'run' ? '⇅ цвет' : '⇅ число';
   el.btnDraw.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
+  // До выхода кнопка хода показывает набранную сумму — не надо считать в уме.
+  el.btnEnd.textContent =
+    !busy && !player.melded && !locked
+      ? `Выход: ${playedPoints()} / ${MIN_FIRST_MELD}`
+      : 'Ход сделан';
 
   // Когда выйти нельзя, единственный осмысленный ход — взять фишку.
   el.btnDraw.classList.toggle('btn-primary', locked);
@@ -244,6 +267,18 @@ function render() {
 
   el.overlayPass.hidden = state.phase !== 'pass';
   if (state.phase === 'pass') renderPass(player);
+}
+
+/** Очки в новых наборах этого хода (до выхода все новые наборы — только свои). */
+function playedPoints() {
+  const fresh = freshOnBoard();
+  let sum = 0;
+  for (const meld of state.board) {
+    if (!meld.length || !meld.every((id) => fresh.has(id))) continue;
+    const info = G.meldInfo(state, meld);
+    if (info.valid) sum += info.points;
+  }
+  return sum;
 }
 
 function subLine(player, outlook, locked) {
@@ -271,8 +306,11 @@ function renderPass(player) {
   const news = newSinceLastSeen();
   el.passName.textContent = player.name;
   el.passInfo.textContent =
+    (player.autoDrawn > 0
+      ? `Выход не собирался, и вы автоматически взяли ${tilesWord(player.autoDrawn)} — они подсвечены на руке. `
+      : '') +
     (news.size
-      ? `С вашего прошлого хода на столе ${tilesWord(news.size)} — они будут подсвечены голубым. `
+      ? `С вашего прошлого хода на столе ${tilesWord(news.size)} — они подсвечены голубым. `
       : '') +
     (player.melded ? '' : `Для первого выхода нужно ${MIN_FIRST_MELD} очков. `) +
     'Нажмите, когда никто не подглядывает.';
@@ -285,7 +323,11 @@ function renderPass(player) {
     name.textContent = (i === state.turn ? '▸ ' : '') + p.name;
     const info = document.createElement('span');
     info.className = 'pts';
-    info.textContent = `${tilesWord(p.rack.length)}${p.melded ? '' : ' · не вышел'}`;
+    // Сколько фишек стало и как изменилось с прошлого хода смотрящего.
+    const delta = p.rack.length - player.seenRacks[i];
+    const deltaText =
+      delta === 0 ? '' : delta > 0 ? ` (+${delta})` : ` (−${-delta})`;
+    info.textContent = `${tilesWord(p.rack.length)}${deltaText}${p.melded ? '' : ' · не вышел'}`;
     li.append(name, info);
     el.passStats.appendChild(li);
   });
@@ -481,8 +523,34 @@ function renderRack() {
     return;
   }
 
+  // Взятые из мешка фишки подсвечиваются как «новые для вас» (голубым).
+  const drawn = new Set(player.drawn || []);
   for (const tile of G.tilesOf(state, player.rack)) {
-    el.rack.appendChild(tileNode(tile, null, null, null));
+    el.rack.appendChild(tileNode(tile, null, null, drawn));
+  }
+}
+
+/** Копилка очков за несколько партий одного состава (для игры «до N побед»). */
+function updateSeries() {
+  if (state.seriesApplied) return readSeries();
+  const key = state.players.map((p) => p.name).join('|');
+  let series = readSeries();
+  if (!series || series.key !== key) {
+    series = { key, totals: state.players.map(() => 0), games: 0 };
+  }
+  state.players.forEach((p, i) => { series.totals[i] += p.score; });
+  series.games += 1;
+  try { localStorage.setItem(SERIES_KEY, JSON.stringify(series)); } catch { /* ну и ладно */ }
+  state.seriesApplied = true;
+  save();
+  return series;
+}
+
+function readSeries() {
+  try {
+    return JSON.parse(localStorage.getItem(SERIES_KEY)) || null;
+  } catch {
+    return null;
   }
 }
 
@@ -505,6 +573,18 @@ function renderEnd() {
     li.append(name, pts);
     el.scoreList.appendChild(li);
   });
+
+  const series = updateSeries();
+  const showSeries = series && series.games > 1;
+  el.seriesLine.hidden = !showSeries;
+  el.btnSeriesReset.hidden = !showSeries;
+  if (showSeries) {
+    const parts = state.players.map(
+      (p, i) => `${p.name} ${series.totals[i] > 0 ? '+' : ''}${series.totals[i]}`
+    );
+    el.seriesLine.textContent = `Серия из ${series.games} партий: ${parts.join(' · ')}`;
+  }
+
   el.overlayEnd.hidden = false;
 }
 
@@ -563,6 +643,7 @@ function endTurn() {
   }
   selection.clear();
   hintIds.clear();
+  runAutoSkip();
   save();
   buzz(14);
   render();
@@ -570,9 +651,14 @@ function endTurn() {
 
 function drawTile() {
   const hadChanges = state.history.length > 0;
+  // Случайное нажатие теряет весь разложенный ход — переспрашиваем.
+  if (hadChanges && !confirm('Взять фишку? Всё, что вы разложили в этом ходу, вернётся как было, и ход перейдёт дальше.')) {
+    return;
+  }
   G.drawAndPass(state);
   selection.clear();
   hintIds.clear();
+  runAutoSkip();
   save();
   render();
   if (hadChanges) toast('Перестановки отменены, ход передан дальше.');
@@ -663,6 +749,8 @@ el.btnDraw.addEventListener('click', drawTile);
 el.btnEnd.addEventListener('click', endTurn);
 
 el.btnReady.addEventListener('click', () => {
+  // Игрок увидел сводку на экране передачи — счётчик автовзятий обнуляем.
+  G.currentPlayer(state).autoDrawn = 0;
   G.beginTurn(state);
   save();
   render();
@@ -671,6 +759,13 @@ el.btnReady.addEventListener('click', () => {
 el.btnNewGame.addEventListener('click', () => {
   localStorage.removeItem(SAVE_KEY);
   showSetup();
+});
+
+el.btnSeriesReset.addEventListener('click', () => {
+  if (!confirm('Обнулить накопленный счёт серии?')) return;
+  localStorage.removeItem(SERIES_KEY);
+  el.seriesLine.hidden = true;
+  el.btnSeriesReset.hidden = true;
 });
 
 $('btnMenu').addEventListener('click', () => { el.overlayMenu.hidden = false; });

@@ -1,6 +1,6 @@
 /* Офлайн-кэш. Меняйте VERSION при каждом обновлении файлов. */
 
-const VERSION = 'rummikub-v3';
+const VERSION = 'rummikub-v4';
 
 const ASSETS = [
   './',

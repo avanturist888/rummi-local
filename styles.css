@@ -122,6 +122,29 @@ button { font: inherit; color: inherit; }
 
 .hint-note { color: var(--ink-dim); font-size: 13px; line-height: 1.5; margin: 2px 0 0; }
 
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+.check input {
+  flex: none;
+  width: 19px;
+  height: 19px;
+  margin: 1px 0 0;
+  accent-color: var(--gold);
+}
+
+.series-line {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-dim);
+}
+
 /* ---------- кнопки ---------- */
 
 .btn {

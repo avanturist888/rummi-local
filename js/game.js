@@ -11,7 +11,7 @@ import {
   MIN_FIRST_MELD,
 } from './rules.js';
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 function shuffle(list) {
   const a = list.slice();
@@ -22,7 +22,7 @@ function shuffle(list) {
   return a;
 }
 
-export function newGame(names) {
+export function newGame(names, opts = {}) {
   const deck = shuffle(createDeck());
   const tiles = {};
   for (const t of deck) tiles[t.id] = t;
@@ -36,6 +36,13 @@ export function newGame(names) {
     // Каким игрок видел стол в конце своего последнего хода —
     // всё, чего здесь нет, для него новое.
     seen: [],
+    // Сколько фишек было у каждого, когда этот игрок в последний раз
+    // держал устройство, — для «Аня — 8 фишек (+2)».
+    seenRacks: names.map(() => RACK_SIZE),
+    // Фишки, взятые из мешка в прошлый ход, — подсветить на руке.
+    drawn: [],
+    // Сколько раз автопропуск взял фишку за игрока с его прошлого хода.
+    autoDrawn: 0,
   }));
 
   const pool = deck.map((t) => t.id);
@@ -45,6 +52,7 @@ export function newGame(names) {
 
   const state = {
     version: STATE_VERSION,
+    autoSkip: opts.autoSkip !== false,
     tiles,
     players,
     pool,
@@ -254,6 +262,7 @@ export function endTurn(state) {
   const player = currentPlayer(state);
   if (check.firstMeld) player.melded = true;
   player.passed = false;
+  player.drawn = [];
 
   tidyBoard(state);
 
@@ -266,14 +275,21 @@ export function endTurn(state) {
   return { ok: true, finished: false };
 }
 
-/** Берёт фишку из мешка и передаёт ход. Ход при этом откатывается к началу. */
-export function drawAndPass(state) {
+/**
+ * Берёт фишку из мешка и передаёт ход. Ход при этом откатывается к началу.
+ * `seen` — игрок реально видел руку в этот ход: прежняя подсветка взятых
+ * фишек сбрасывается. Автопропуск передаёт false, и подсветка копится.
+ */
+export function drawAndPass(state, seen = true) {
   resetTurn(state);
   const player = currentPlayer(state);
 
   const took = state.pool.length > 0;
+  if (seen) player.drawn = [];
   if (took) {
-    player.rack.push(state.pool.shift());
+    const id = state.pool.shift();
+    player.rack.push(id);
+    player.drawn.push(id);
     player.passed = false;
   } else {
     player.passed = true;
@@ -291,7 +307,9 @@ export function drawAndPass(state) {
 }
 
 function nextTurn(state) {
-  currentPlayer(state).seen = state.board.flat();
+  const leaving = currentPlayer(state);
+  leaving.seen = state.board.flat();
+  leaving.seenRacks = state.players.map((p) => p.rack.length);
   state.turn = (state.turn + 1) % state.players.length;
   if (state.turn === 0) state.round++;
   state.phase = 'pass';
@@ -319,4 +337,32 @@ export function beginTurn(state) {
   state.phase = 'play';
   state.history = [];
   state.startSnapshot = snapshot(state);
+}
+
+/**
+ * Автопропуск вынужденных ходов: пока очередной игрок не вышел и из его
+ * руки в принципе не собрать первый выход, единственный легальный ход —
+ * взять фишку. Игра делает его сама, не требуя передавать устройство.
+ *
+ * `solve(tiles)` — решатель первого выхода ({ reachedTarget, capped }).
+ * Правила не меняются: партия развивается ровно так же, как если бы
+ * игрок сам нажал «Взять фишку».
+ */
+export function autoSkipImpossible(state, solve) {
+  let skipped = 0;
+  let guard = 0;
+  while (state.phase === 'pass' && guard++ < 300) {
+    const player = currentPlayer(state);
+    if (player.melded) break;
+    const res = solve(tilesOf(state, player.rack));
+    if (res.capped || res.reachedTarget) break;
+
+    beginTurn(state);
+    const took = state.pool.length > 0;
+    const result = drawAndPass(state, false);
+    if (took) player.autoDrawn += 1;
+    skipped++;
+    if (result.finished) break;
+  }
+  return skipped;
 }
