@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { analyze, createDeck, findSets, handValue } from '../js/rules.js';
+import { analyze, createDeck, findSets, handValue, splitRun } from '../js/rules.js';
 
 let seq = 0;
 const t = (color, num) => ({ id: `${color}${num}_${seq++}`, color, num, joker: false });
@@ -96,6 +96,31 @@ test('джокеров не хватает на дырки', () => {
 
 test('стоимость руки: джокер стоит 30', () => {
   assert.equal(handValue([t('r', 13), joker(), t('b', 1)]), 44);
+});
+
+test('splitRun: ряд с дыркой распадается на два правильных куска', () => {
+  const parts = splitRun([t('o', 3), t('o', 4), t('o', 5), t('o', 7), t('o', 8), t('o', 9)]);
+  assert.equal(parts.length, 2);
+  assert.deepEqual(parts[0].map((x) => x.num), [3, 4, 5]);
+  assert.deepEqual(parts[1].map((x) => x.num), [7, 8, 9]);
+  assert.ok(parts.every((p) => analyze(p).valid));
+});
+
+test('splitRun: короткому куску не хватает фишек — не разбиваем', () => {
+  assert.equal(splitRun([t('o', 3), t('o', 4), t('o', 5), t('o', 6), t('o', 8)]), null);
+});
+
+test('splitRun: джокер достаётся короткой половине', () => {
+  const parts = splitRun([t('b', 3), t('b', 4), t('b', 5), t('b', 8), t('b', 9), joker()]);
+  assert.equal(parts.length, 2);
+  assert.ok(parts.every((p) => analyze(p).valid));
+  const short = parts.find((p) => p.some((x) => x.joker));
+  assert.deepEqual(short.filter((x) => !x.joker).map((x) => x.num), [8, 9]);
+});
+
+test('splitRun: разные цвета или повторы — это не сломанный ряд', () => {
+  assert.equal(splitRun([t('r', 3), t('b', 4), t('r', 7), t('r', 8), t('r', 9)]), null);
+  assert.equal(splitRun([t('r', 3), t('r', 3), t('r', 7), t('r', 8), t('r', 9)]), null);
 });
 
 test('findSets находит и ряд, и группу', () => {

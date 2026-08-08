@@ -167,6 +167,46 @@ function explainFailure(naturals, jokers, size) {
 }
 
 /**
+ * Пытается разбить сломанный ряд на несколько правильных рядов.
+ * Нужен, когда из середины длинного ряда забрали фишку: если по бокам
+ * осталось достаточно фишек (с учётом джокеров), ряд распадается
+ * на отдельные наборы, а не висит одним «сломанным».
+ * Возвращает массив наборов (массивов фишек) или null, если чисто
+ * разбить нельзя.
+ */
+export function splitRun(tiles) {
+  const naturals = tiles.filter((t) => !t.joker);
+  const jokers = tiles.filter((t) => t.joker);
+  if (naturals.length < 2) return null;
+
+  const color = naturals[0].color;
+  if (!naturals.every((t) => t.color === color)) return null;
+  const nums = naturals.map((t) => t.num);
+  if (new Set(nums).size !== nums.length) return null;
+
+  const sorted = [...naturals].sort((a, b) => a.num - b.num);
+  const segments = [];
+  for (const tile of sorted) {
+    const last = segments[segments.length - 1];
+    if (last && tile.num === last[last.length - 1].num + 1) last.push(tile);
+    else segments.push([tile]);
+  }
+  if (segments.length < 2) return null;
+
+  // Джокеры достаются коротким кускам; края проверит analyze.
+  const spare = jokers.slice();
+  const need = segments.reduce((sum, seg) => sum + Math.max(0, 3 - seg.length), 0);
+  if (need > spare.length) return null;
+  for (const seg of segments) {
+    while (seg.length < 3 && spare.length) seg.push(spare.pop());
+  }
+  while (spare.length) segments[segments.length - 1].push(spare.pop());
+
+  if (!segments.every((seg) => analyze(seg).valid)) return null;
+  return segments;
+}
+
+/**
  * Все допустимые наборы, которые можно собрать из данных фишек.
  * Перебор подмножеств до `maxSize` — используется подсказкой.
  */

@@ -4,7 +4,7 @@
  */
 
 import * as G from './game.js';
-import { COLORS, MIN_FIRST_MELD } from './rules.js';
+import { COLORS, MIN_FIRST_MELD, findSets } from './rules.js';
 import { bestFirstMeld } from './solver.js';
 import { findHint } from './hint.js';
 
@@ -13,6 +13,11 @@ const NAMES_KEY = 'rummikub:names';
 const AUTOSKIP_KEY = 'rummikub:autoskip';
 const SERIES_KEY = 'rummikub:series';
 const ROSTER_KEY = 'rummikub:roster';
+const TIMER_KEY = 'rummikub:timer';
+const PCOLORS_KEY = 'rummikub:playerColors';
+
+/** Палитра игроков: подобрана под тёмно-зелёное сукно интерфейса. */
+const PLAYER_COLORS = ['#ffd166', '#7ee0a3', '#ff9d76', '#c9a7ff', '#6fc3ff', '#ff8fb3'];
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,13 +34,20 @@ const el = {
   hudPool: $('hudPool'),
   board: $('board'),
   rack: $('rack'),
+  comboBar: $('comboBar'),
+  hudTimer: $('hudTimer'),
+  timerPicker: $('timerPicker'),
   btnSort: $('btnSort'),
-  btnHint: $('btnHint'),
   btnUndo: $('btnUndo'),
   btnToRack: $('btnToRack'),
+  btnPlace: $('btnPlace'),
   btnDraw: $('btnDraw'),
   btnEnd: $('btnEnd'),
   btnFull: $('btnFull'),
+  overlayConfirm: $('overlayConfirm'),
+  confirmText: $('confirmText'),
+  btnConfirmYes: $('btnConfirmYes'),
+  btnConfirmNo: $('btnConfirmNo'),
   overlayPass: $('overlayPass'),
   passName: $('passName'),
   passInfo: $('passInfo'),
@@ -62,6 +74,9 @@ let sortMode = 'run';
 let playerCount = 3;
 let toastTimer = null;
 let meldCache = null; // расчёт первого выхода: один раз за ход
+let timerSec = 0; // выбранный на экране настройки таймер хода
+let playerColorIdx = [0, 1, 2, 3]; // выбранные цвета игроков (индексы палитры)
+let confirmResolve = null;
 
 /* ---------- вспомогательное ---------- */
 
@@ -137,6 +152,28 @@ function firstMeldOutlook() {
 
 const shortName = (s) => (s.length > 9 ? s.slice(0, 8) + '…' : s);
 
+const playerColor = (player) => player.color || PLAYER_COLORS[0];
+
+/* ---------- стилизованное подтверждение ---------- */
+
+/**
+ * Замена системному confirm(): живёт внутри #stage, поэтому
+ * поворачивается вместе с игрой и выглядит как остальной интерфейс.
+ */
+function askConfirm(text, yesLabel = 'Да') {
+  el.confirmText.textContent = text;
+  el.btnConfirmYes.textContent = yesLabel;
+  el.overlayConfirm.hidden = false;
+  return new Promise((resolve) => { confirmResolve = resolve; });
+}
+
+function closeConfirm(answer) {
+  el.overlayConfirm.hidden = true;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  resolve?.(answer);
+}
+
 /* ---------- ориентация ---------- */
 
 /**
@@ -164,6 +201,28 @@ updateViewportMode();
 
 function loadAutoSkipPref() {
   el.optAutoSkip.checked = localStorage.getItem(AUTOSKIP_KEY) !== '0';
+}
+
+function loadTimerPref() {
+  timerSec = Number(localStorage.getItem(TIMER_KEY)) || 0;
+  [...el.timerPicker.children].forEach((b) =>
+    b.classList.toggle('is-active', Number(b.dataset.timer) === timerSec)
+  );
+}
+
+function loadColorPref() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PCOLORS_KEY)) || [];
+    playerColorIdx = [0, 1, 2, 3].map((i) =>
+      Number.isInteger(saved[i]) ? saved[i] % PLAYER_COLORS.length : i
+    );
+  } catch {
+    playerColorIdx = [0, 1, 2, 3];
+  }
+}
+
+function saveColorPref() {
+  try { localStorage.setItem(PCOLORS_KEY, JSON.stringify(playerColorIdx)); } catch { /* пусть */ }
 }
 
 /* ---------- запомненные игроки ---------- */
@@ -217,14 +276,41 @@ function renderNameInputs() {
   const previous = [...el.nameInputs.querySelectorAll('input')].map((i) => i.value);
   el.nameInputs.innerHTML = '';
   for (let i = 0; i < playerCount; i++) {
+    const row = document.createElement('div');
+    row.className = 'name-row';
+
+    // Кружок цвета: тап перебирает свободные цвета палитры.
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'color-dot';
+    dot.dataset.player = String(i);
+    dot.style.setProperty('--dot', PLAYER_COLORS[playerColorIdx[i]]);
+    dot.setAttribute('aria-label', `Цвет игрока ${i + 1}`);
+
     const input = document.createElement('input');
     input.type = 'text';
     input.maxLength = 14;
     input.placeholder = `Игрок ${i + 1}`;
     input.value = previous[i] ?? saved[i] ?? '';
     input.autocomplete = 'off';
-    el.nameInputs.appendChild(input);
+
+    row.append(dot, input);
+    el.nameInputs.appendChild(row);
   }
+}
+
+/** Следующий цвет палитры, не занятый другими видимыми игроками. */
+function cyclePlayerColor(i) {
+  const used = playerColorIdx.filter((_, k) => k !== i && k < playerCount);
+  let next = playerColorIdx[i];
+  for (let step = 0; step < PLAYER_COLORS.length; step++) {
+    next = (next + 1) % PLAYER_COLORS.length;
+    if (!used.includes(next)) break;
+  }
+  playerColorIdx[i] = next;
+  saveColorPref();
+  const dot = el.nameInputs.querySelector(`.color-dot[data-player="${i}"]`);
+  if (dot) dot.style.setProperty('--dot', PLAYER_COLORS[next]);
 }
 
 function showSetup() {
@@ -238,8 +324,11 @@ function showSetup() {
   el.overlayMenu.hidden = true;
   el.btnContinue.hidden = !loadSave();
   loadAutoSkipPref();
+  loadTimerPref();
+  loadColorPref();
   renderNameInputs();
   renderRoster();
+  document.body.style.removeProperty('--pc');
 }
 
 function startGame() {
@@ -248,8 +337,11 @@ function startGame() {
   );
   localStorage.setItem(NAMES_KEY, JSON.stringify(names));
   localStorage.setItem(AUTOSKIP_KEY, el.optAutoSkip.checked ? '1' : '0');
+  localStorage.setItem(TIMER_KEY, String(timerSec));
   rememberPlayers(names);
   state = G.newGame(names, { autoSkip: el.optAutoSkip.checked });
+  state.timerSec = timerSec;
+  state.players.forEach((p, i) => { p.color = PLAYER_COLORS[playerColorIdx[i]]; });
   // Выравнивание раздачи: добираем фишки всем, у кого нет выхода на 30, —
   // игра начинается для всех одновременно.
   let rounds = 0;
@@ -280,6 +372,8 @@ function enterGame() {
   el.screenGame.hidden = false;
   el.overlayEnd.hidden = true;
   runAutoSkip();
+  // Партию могли открыть заново посреди хода — время отсчитываем заново.
+  if (state.phase === 'play') armTurnTimer();
   save();
   render();
 }
@@ -298,20 +392,25 @@ function render() {
   const busy = state.phase !== 'play';
   const outlook = busy ? null : firstMeldOutlook();
   const locked = !!outlook && !outlook.reachedTarget && !outlook.capped;
+  // Ход реально можно завершить? Только тогда кнопка хода подсвечена.
+  const turnReady = !busy && !locked && G.validateTurn(state).ok;
 
+  document.body.style.setProperty('--pc', playerColor(player));
   el.hudName.textContent = player.name;
   el.hudSub.textContent = subLine(player, outlook, locked);
   el.hudPool.textContent = String(state.pool.length);
   renderHudPlayers();
+  updateTimerChip();
 
   renderBoard(locked, outlook);
   renderRack();
+  renderCombos();
 
   el.btnUndo.disabled = busy || state.history.length === 0;
   el.btnToRack.disabled = busy || selection.size === 0;
+  el.btnPlace.disabled = busy || selection.size === 0;
   el.btnDraw.disabled = busy;
   el.btnEnd.disabled = busy || locked;
-  el.btnHint.disabled = busy;
   el.btnSort.disabled = busy;
   el.btnSort.textContent = sortMode === 'run' ? '⇅ цвет' : '⇅ число';
   el.btnDraw.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
@@ -324,8 +423,8 @@ function render() {
   // Когда выйти нельзя, единственный осмысленный ход — взять фишку.
   el.btnDraw.classList.toggle('btn-primary', locked);
   el.btnDraw.classList.toggle('btn-soft', !locked);
-  el.btnEnd.classList.toggle('btn-primary', !locked);
-  el.btnEnd.classList.toggle('btn-soft', locked);
+  el.btnEnd.classList.toggle('btn-primary', turnReady);
+  el.btnEnd.classList.toggle('btn-soft', !turnReady);
 
   el.overlayPass.hidden = state.phase !== 'pass';
   if (state.phase === 'pass') renderPass(player);
@@ -356,7 +455,10 @@ function renderHudPlayers() {
   state.players.forEach((p, i) => {
     const chip = document.createElement('span');
     chip.className = 'pchip' + (i === state.turn ? ' is-turn' : '');
-    chip.append(shortName(p.name) + ' ');
+    chip.style.setProperty('--pcc', playerColor(p));
+    const dot = document.createElement('span');
+    dot.className = 'pdot';
+    chip.append(dot, shortName(p.name) + ' ');
     const count = document.createElement('b');
     count.textContent = String(p.rack.length);
     chip.appendChild(count);
@@ -367,6 +469,7 @@ function renderHudPlayers() {
 function renderPass(player) {
   const news = newSinceLastSeen();
   el.passName.textContent = player.name;
+  el.passName.style.color = playerColor(player);
   el.passInfo.textContent =
     (player.autoDrawn > 0
       ? `Вы автоматически добрали ${tilesWord(player.autoDrawn)} — они подсвечены на руке. `
@@ -423,22 +526,14 @@ function tileNode(tile, shownValue, fresh, news) {
   return node;
 }
 
-function meldRow(entry, fresh, news) {
+function meldRow(entry, fresh, news, canTake) {
   const { meld, index, info } = entry;
   const row = document.createElement('div');
   row.className = 'meld' + (info.valid ? '' : ' is-bad');
   if (meld.some((id) => news.has(id))) row.classList.add('has-new');
+  // Выбранные фишки складываются с этим набором — подсказываем куда нажать.
+  if (canTake?.has(index)) row.classList.add('can-take');
   row.dataset.index = String(index);
-
-  if (selection.size) {
-    row.classList.add('has-drop');
-    const drop = document.createElement('button');
-    drop.className = 'meld-drop';
-    drop.dataset.drop = String(index);
-    drop.textContent = '＋';
-    drop.setAttribute('aria-label', 'Положить сюда выбранные фишки');
-    row.appendChild(drop);
-  }
 
   const shown = info.valid ? info.ordered : meld.map((id) => state.tiles[id]);
   shown.forEach((tile, i) => {
@@ -456,7 +551,9 @@ function meldRow(entry, fresh, news) {
 
 function renderBoard(locked, outlook) {
   const fresh = freshOnBoard();
-  const news = newSinceLastSeen();
+  // Чужие новинки подсвечены, только пока игрок сам ничего не трогал:
+  // как только начались перестановки, метки гаснут и не путаются под руками.
+  const news = state.history.length ? new Set() : newSinceLastSeen();
   el.board.innerHTML = '';
 
   if (locked) {
@@ -503,9 +600,20 @@ function renderBoard(locked, outlook) {
     info: G.meldInfo(state, meld),
   }));
 
+  // К каким наборам выбранные фишки подходят целиком (после выхода).
+  const player = G.currentPlayer(state);
+  const canTake = new Set();
+  if (selection.size && player.melded) {
+    const selIds = [...selection];
+    for (const entry of entries) {
+      if (entry.meld.some((id) => selection.has(id))) continue;
+      if (G.meldInfo(state, [...entry.meld, ...selIds]).valid) canTake.add(entry.index);
+    }
+  }
+
   // Недособранные наборы — сверху на всю ширину, их нужно чинить.
   for (const entry of entries.filter((e) => !e.info.valid)) {
-    el.board.appendChild(meldRow(entry, fresh, news));
+    el.board.appendChild(meldRow(entry, fresh, news, canTake));
   }
 
   const groups = entries
@@ -520,14 +628,14 @@ function renderBoard(locked, outlook) {
   const zones = document.createElement('div');
   zones.className = 'zones';
   zones.append(
-    zoneEl('Группы', groups, fresh, news),
-    zoneEl('Ряды', runs, fresh, news)
+    zoneEl('Группы', groups, fresh, news, canTake),
+    zoneEl('Ряды', runs, fresh, news, canTake)
   );
   el.board.appendChild(zones);
   el.board.appendChild(newZone());
 }
 
-function zoneEl(title, list, fresh, news) {
+function zoneEl(title, list, fresh, news, canTake) {
   const zone = document.createElement('div');
   zone.className = 'zone';
   const head = document.createElement('div');
@@ -540,7 +648,7 @@ function zoneEl(title, list, fresh, news) {
     empty.textContent = 'пока пусто';
     zone.appendChild(empty);
   }
-  for (const entry of list) zone.appendChild(meldRow(entry, fresh, news));
+  for (const entry of list) zone.appendChild(meldRow(entry, fresh, news, canTake));
   return zone;
 }
 
@@ -580,7 +688,8 @@ function renderRack() {
   if (!player.rack.length) {
     const note = document.createElement('p');
     note.className = 'rack-empty';
-    note.textContent = 'Фишек не осталось — нажмите «Ход сделан».';
+    // Если бы стол был правильным, победа уже показалась бы сама.
+    note.textContent = 'Все фишки выложены! Осталось собрать стол правильно.';
     el.rack.appendChild(note);
     return;
   }
@@ -619,6 +728,83 @@ function fitRack(count) {
     el.rack.style.setProperty('--tile-w', `${Math.max(26, Math.floor(fitted))}px`);
   }
 }
+
+/**
+ * Умная группировка: когда выбраны фишки с руки, над лотком показываются
+ * все наборы, в которые они складываются. Одна и та же фишка часто годится
+ * в несколько комбинаций — тап по чипу выбирает нужную целиком.
+ */
+function renderCombos() {
+  el.comboBar.innerHTML = '';
+  el.comboBar.hidden = true;
+  if (!state || state.phase !== 'play' || !selection.size) return;
+
+  const player = G.currentPlayer(state);
+  const rackSet = new Set(player.rack);
+  const selected = [...selection];
+  if (!selected.every((id) => rackSet.has(id))) return;
+
+  const all = findSets(G.tilesOf(state, player.rack)).filter((s) =>
+    selected.every((id) => s.tiles.some((t) => t.id === id))
+  );
+  // Дубликаты по составу (вторая копия той же фишки) не показываем.
+  const seen = new Set();
+  const options = [];
+  for (const s of all) {
+    const key = s.tiles.map((t) => (t.joker ? '★' : t.color + t.num)).sort().join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push(s);
+    if (options.length >= 6) break;
+  }
+  if (!options.length) return;
+
+  el.comboBar.hidden = false;
+  const label = document.createElement('span');
+  label.className = 'combo-label';
+  label.textContent = 'Комбинации:';
+  el.comboBar.appendChild(label);
+  for (const s of options) {
+    const chip = document.createElement('button');
+    chip.className = 'combo-chip';
+    chip.dataset.ids = s.tiles.map((t) => t.id).join(',');
+    chip.textContent = s.tiles.map((t) => (t.joker ? '★' : t.num)).join('·');
+    const pts = document.createElement('b');
+    pts.textContent = ` ${s.points}`;
+    chip.appendChild(pts);
+    el.comboBar.appendChild(chip);
+  }
+}
+
+/* ---------- таймер хода ---------- */
+
+function armTurnTimer() {
+  if (!state) return;
+  state.deadline =
+    state.timerSec && state.phase === 'play' ? Date.now() + state.timerSec * 1000 : null;
+  updateTimerChip();
+}
+
+function updateTimerChip() {
+  const show = !!(state && state.phase === 'play' && state.timerSec && state.deadline);
+  el.hudTimer.hidden = !show;
+  if (!show) return;
+  const left = Math.max(0, Math.ceil((state.deadline - Date.now()) / 1000));
+  el.hudTimer.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  el.hudTimer.classList.toggle('is-low', left <= 15);
+}
+
+function tickTimer() {
+  if (!state || state.phase !== 'play' || !state.timerSec || !state.deadline) return;
+  updateTimerChip();
+  if (Date.now() < state.deadline) return;
+  state.deadline = null;
+  closeConfirm(false); // время вышло — открытый вопрос уже не актуален
+  toast('Время хода вышло — фишка взята автоматически.', true);
+  forceDraw();
+}
+
+setInterval(tickTimer, 500);
 
 /** Копилка очков за несколько партий одного состава (для игры «до N побед»). */
 function updateSeries() {
@@ -700,7 +886,53 @@ function placeSelection(meldIndex) {
   hintIds.clear();
   buzz(8);
   save();
+  if (maybeAutoWin()) return;
   render();
+}
+
+/**
+ * Игрок выложил последнюю фишку и стол правильный — победа показывается
+ * сразу, без лишнего нажатия «Ход сделан».
+ */
+function maybeAutoWin() {
+  if (!state || state.phase !== 'play') return false;
+  if (G.currentPlayer(state).rack.length) return false;
+  if (!G.validateTurn(state).ok) return false;
+  endTurn();
+  return true;
+}
+
+/**
+ * Кнопка «Выставить»: сама решает, куда положить выбранное.
+ * Валидный набор — новым набором; иначе ищет на столе набор, который
+ * примет фишки целиком; в крайнем случае кладёт отдельно (как «＋ Новый
+ * набор») — достроить можно следующими ходами руки.
+ */
+function smartPlace() {
+  if (state.phase !== 'play') return;
+  if (!selection.size) {
+    toast('Сначала выберите фишки — нажмите на них.');
+    return;
+  }
+  const player = G.currentPlayer(state);
+  const ids = [...selection];
+
+  if (G.meldInfo(state, ids).valid) {
+    placeSelection(-1);
+    return;
+  }
+
+  if (player.melded) {
+    for (let i = 0; i < state.board.length; i++) {
+      if (state.board[i].some((id) => selection.has(id))) continue;
+      if (G.meldInfo(state, [...state.board[i], ...ids]).valid) {
+        placeSelection(i);
+        return;
+      }
+    }
+  }
+
+  placeSelection(-1);
 }
 
 function toRack() {
@@ -739,19 +971,30 @@ function endTurn() {
   render();
 }
 
-function drawTile() {
+async function drawTile() {
   const hadChanges = state.history.length > 0;
   // Случайное нажатие теряет весь разложенный ход — переспрашиваем.
-  if (hadChanges && !confirm('Взять фишку? Всё, что вы разложили в этом ходу, вернётся как было, и ход перейдёт дальше.')) {
-    return;
+  if (hadChanges) {
+    const token = `${state.round}:${state.turn}`;
+    const ok = await askConfirm(
+      'Взять фишку? Всё, что вы разложили в этом ходу, вернётся как было, и ход перейдёт дальше.',
+      'Взять фишку'
+    );
+    // Пока думали, ход мог закончиться (например, по таймеру).
+    if (!ok || state.phase !== 'play' || `${state.round}:${state.turn}` !== token) return;
   }
+  forceDraw();
+  if (hadChanges) toast('Перестановки отменены, ход передан дальше.');
+}
+
+/** Взять фишку без вопросов: общий финал добора и срабатывания таймера. */
+function forceDraw() {
   G.drawAndPass(state);
   selection.clear();
   hintIds.clear();
   runAutoSkip();
   save();
   render();
-  if (hadChanges) toast('Перестановки отменены, ход передан дальше.');
 }
 
 /* ---------- события ---------- */
@@ -802,12 +1045,8 @@ el.btnContinue.addEventListener('click', () => {
 
 el.board.addEventListener('click', (e) => {
   if (state?.phase !== 'play') return;
-
-  const drop = e.target.closest('[data-drop]');
-  if (drop) {
-    placeSelection(Number(drop.dataset.drop));
-    return;
-  }
+  const player = G.currentPlayer(state);
+  const locked = lockedOnBoard();
 
   if (e.target.closest('#newZone')) {
     if (selection.size) placeSelection(-1);
@@ -817,14 +1056,26 @@ el.board.addEventListener('click', (e) => {
 
   const tile = e.target.closest('.tile');
   if (tile) {
+    // До первого выхода стол неприкосновенен — не даём даже выделять,
+    // чтобы не собрать ход, который всё равно не примется.
+    if (!player.melded && locked.has(tile.dataset.id)) {
+      toast('До первого выхода наборы на столе трогать нельзя.', true);
+      return;
+    }
     toggleTile(tile.dataset.id);
     return;
   }
 
   const meld = e.target.closest('.meld');
   if (meld) {
-    if (selection.size) placeSelection(Number(meld.dataset.index));
-    else selectMeld(Number(meld.dataset.index));
+    const index = Number(meld.dataset.index);
+    const isLockedMeld = state.board[index].some((id) => locked.has(id));
+    if (!player.melded && isLockedMeld) {
+      toast('До первого выхода можно выкладывать только свои новые наборы.', true);
+      return;
+    }
+    if (selection.size) placeSelection(index);
+    else selectMeld(index);
     return;
   }
 
@@ -844,11 +1095,18 @@ el.btnSort.addEventListener('click', () => {
   sortMode = sortMode === 'run' ? 'group' : 'run';
   const player = G.currentPlayer(state);
   player.rack = sortRack(player.rack);
+  // Порядок руки — косметика. Переносим его и в снимки хода, иначе
+  // «Отменить» или добор вернут старый порядок и фишки скакнут.
+  const rewrite = (snap) => {
+    const data = JSON.parse(snap);
+    data.racks[state.turn] = sortRack(data.racks[state.turn]);
+    return JSON.stringify(data);
+  };
+  state.startSnapshot = rewrite(state.startSnapshot);
+  state.history = state.history.map(rewrite);
   save();
   render();
 });
-
-el.btnHint.addEventListener('click', doHint);
 
 el.btnUndo.addEventListener('click', () => {
   if (G.undo(state)) {
@@ -859,13 +1117,41 @@ el.btnUndo.addEventListener('click', () => {
 });
 
 el.btnToRack.addEventListener('click', toRack);
+el.btnPlace.addEventListener('click', smartPlace);
 el.btnDraw.addEventListener('click', drawTile);
 el.btnEnd.addEventListener('click', endTurn);
+
+// Тап по комбинации над лотком — выбрать её фишки целиком.
+el.comboBar.addEventListener('click', (e) => {
+  const chip = e.target.closest('.combo-chip');
+  if (!chip) return;
+  selection = new Set(chip.dataset.ids.split(','));
+  hintIds.clear();
+  render();
+});
+
+// Кружок цвета на экране настройки — перебор свободных цветов.
+el.nameInputs.addEventListener('click', (e) => {
+  const dot = e.target.closest('.color-dot');
+  if (dot) cyclePlayerColor(Number(dot.dataset.player));
+});
+
+el.timerPicker.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-timer]');
+  if (!btn) return;
+  timerSec = Number(btn.dataset.timer);
+  localStorage.setItem(TIMER_KEY, String(timerSec));
+  [...el.timerPicker.children].forEach((c) => c.classList.toggle('is-active', c === btn));
+});
+
+el.btnConfirmYes.addEventListener('click', () => closeConfirm(true));
+el.btnConfirmNo.addEventListener('click', () => closeConfirm(false));
 
 el.btnReady.addEventListener('click', () => {
   // Игрок увидел сводку на экране передачи — счётчик автовзятий обнуляем.
   G.currentPlayer(state).autoDrawn = 0;
   G.beginTurn(state);
+  armTurnTimer();
   save();
   render();
 });
@@ -875,8 +1161,8 @@ el.btnNewGame.addEventListener('click', () => {
   showSetup();
 });
 
-el.btnSeriesReset.addEventListener('click', () => {
-  if (!confirm('Обнулить накопленный счёт серии?')) return;
+el.btnSeriesReset.addEventListener('click', async () => {
+  if (!(await askConfirm('Обнулить накопленный счёт серии?', 'Обнулить'))) return;
   localStorage.removeItem(SERIES_KEY);
   el.seriesLine.hidden = true;
   el.btnSeriesReset.hidden = true;
@@ -884,6 +1170,11 @@ el.btnSeriesReset.addEventListener('click', () => {
 
 $('btnMenu').addEventListener('click', () => { el.overlayMenu.hidden = false; });
 $('btnCloseMenu').addEventListener('click', () => { el.overlayMenu.hidden = true; });
+
+$('btnHintMenu').addEventListener('click', () => {
+  el.overlayMenu.hidden = true;
+  doHint();
+});
 
 $('btnResetTurn').addEventListener('click', () => {
   G.resetTurn(state);
@@ -895,9 +1186,9 @@ $('btnResetTurn').addEventListener('click', () => {
   toast('Ход отменён — стол как в начале хода.');
 });
 
-$('btnQuit').addEventListener('click', () => {
+$('btnQuit').addEventListener('click', async () => {
   el.overlayMenu.hidden = true;
-  if (confirm('Выйти в начало? Партия останется сохранённой.')) showSetup();
+  if (await askConfirm('Выйти в начало? Партия останется сохранённой.', 'Выйти')) showSetup();
 });
 
 const openRules = () => { el.overlayRules.hidden = false; };
