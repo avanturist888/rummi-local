@@ -6,6 +6,7 @@
 import {
   createDeck,
   analyze,
+  splitRun,
   handValue,
   RACK_SIZE,
   MIN_FIRST_MELD,
@@ -125,17 +126,45 @@ export function resetTurn(state) {
 
 /* ---------- перемещение фишек ---------- */
 
-/** Снимает фишки отовсюду, не сдвигая индексы наборов на столе. */
+/**
+ * Снимает фишки отовсюду, не сдвигая индексы наборов на столе.
+ * Возвращает индексы наборов, из которых что-то забрали.
+ */
 function detach(state, ids) {
   const set = new Set(ids);
   for (const player of state.players) {
     player.rack = player.rack.filter((id) => !set.has(id));
   }
-  state.board = state.board.map((meld) => meld.filter((id) => !set.has(id)));
+  const touched = new Set();
+  state.board = state.board.map((meld, i) => {
+    const kept = meld.filter((id) => !set.has(id));
+    if (kept.length !== meld.length) touched.add(i);
+    return kept;
+  });
+  return touched;
 }
 
 function cleanBoard(state) {
   state.board = state.board.filter((meld) => meld.length > 0);
+}
+
+/**
+ * Наборы, из которых забрали фишку и которые от этого сломались,
+ * распадаются на отдельные правильные ряды — если фишек по бокам хватает.
+ */
+function splitBroken(state, touched) {
+  if (!touched.size) return;
+  const next = [];
+  state.board.forEach((meld, i) => {
+    if (!touched.has(i) || meld.length < 6 || analyze(tilesOf(state, meld)).valid) {
+      next.push(meld);
+      return;
+    }
+    const parts = splitRun(tilesOf(state, meld));
+    if (parts) next.push(...parts.map((part) => part.map((t) => t.id)));
+    else next.push(meld);
+  });
+  state.board = next;
 }
 
 /** Кладёт выбранные фишки в набор с индексом `meldIndex` (или в новый при -1). */
@@ -143,14 +172,16 @@ export function moveTiles(state, ids, meldIndex) {
   if (!ids.length) return;
   pushHistory(state);
 
-  detach(state, ids);
+  const touched = detach(state, ids);
 
   if (meldIndex >= 0 && meldIndex < state.board.length) {
     state.board[meldIndex] = [...state.board[meldIndex], ...ids];
+    touched.delete(meldIndex);
   } else {
     state.board.push(ids.slice());
   }
 
+  splitBroken(state, touched);
   cleanBoard(state);
 }
 
@@ -158,8 +189,9 @@ export function moveTiles(state, ids, meldIndex) {
 export function returnToRack(state, ids) {
   if (!ids.length) return;
   pushHistory(state);
-  detach(state, ids);
+  const touched = detach(state, ids);
   currentPlayer(state).rack.push(...ids);
+  splitBroken(state, touched);
   cleanBoard(state);
 }
 

@@ -34,9 +34,19 @@
     </div>
 
     <div class="field">
-      <span class="field-label">Имена</span>
+      <span class="field-label">Имена и цвета</span>
       <div id="rosterChips" class="roster" hidden></div>
       <div id="nameInputs" class="names"></div>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Таймер хода</span>
+      <div class="seg" id="timerPicker" role="group" aria-label="Таймер хода">
+        <button class="seg-item is-active" data-timer="0">Выкл</button>
+        <button class="seg-item" data-timer="60">1 мин</button>
+        <button class="seg-item" data-timer="120">2 мин</button>
+        <button class="seg-item" data-timer="180">3 мин</button>
+      </div>
     </div>
 
     <label class="check">
@@ -65,6 +75,7 @@
     </div>
     <div class="hud-players" id="hudPlayers" title="Фишки на руках"></div>
     <div class="hud-right">
+      <span class="chip chip-timer" id="hudTimer" hidden>0:00</span>
       <span class="chip" id="hudPool" title="Фишек в мешке">0</span>
       <button class="icon-btn" id="btnFull" aria-label="Во весь экран">⛶</button>
       <button class="icon-btn" id="btnMenu" aria-label="Меню">☰</button>
@@ -74,17 +85,18 @@
   <main class="board" id="board" aria-label="Стол"></main>
 
   <div class="rack-area">
+    <div class="combo-bar" id="comboBar" aria-label="Комбинации с выбранными фишками"></div>
     <div class="rack" id="rack"></div>
   </div>
 
   <footer class="actions">
     <div class="actions-minis">
       <button class="mini-btn" id="btnSort">⇅ цвет</button>
-      <button class="mini-btn" id="btnHint">Подсказка</button>
       <button class="mini-btn" id="btnUndo">Отменить</button>
+      <button class="mini-btn" id="btnToRack">На руку</button>
     </div>
     <div class="actions-main">
-      <button class="btn btn-soft" id="btnToRack">На руку</button>
+      <button class="btn btn-soft" id="btnPlace">Выставить</button>
       <button class="btn btn-soft" id="btnDraw">Взять фишку</button>
       <button class="btn btn-primary btn-grow" id="btnEnd">Ход сделан</button>
     </div>
@@ -118,6 +130,7 @@
 <div class="overlay" id="overlayMenu" hidden>
   <div class="overlay-card">
     <h2 class="overlay-name">Меню</h2>
+    <button class="btn btn-soft btn-wide" id="btnHintMenu">Подсказка</button>
     <button class="btn btn-soft btn-wide" id="btnResetTurn">Отменить весь ход</button>
     <button class="btn btn-soft btn-wide" id="btnRulesGame">Как играть</button>
     <button class="btn btn-soft btn-wide" id="btnQuit">Выйти в начало</button>
@@ -147,12 +160,16 @@
       <p>Фишку, которая уже лежит на столе, забрать на руку нельзя — её можно только переставить в другой набор. Это касается и джокеров.</p>
 
       <h3>Управление</h3>
-      <p>Нажмите на фишки, чтобы выбрать (можно несколько), затем нажмите на набор на столе — фишки переедут туда. «＋ Новый набор» создаёт отдельный набор, «На руку» возвращает фишки, выложенные вами в этом ходу.</p>
-      <p>Нажатие на набор без выбранных фишек выделяет его целиком — удобно разбирать. Стол раскладывается сам: группы (одинаковые числа) слева, ряды — справа.</p>
+      <p>Нажмите на фишки, чтобы выбрать (можно несколько). Когда выбраны фишки с руки, над лотком появляются <b>комбинации</b> — готовые наборы с этими фишками: нажмите на комбинацию, и она выберется целиком. Кнопка <b>«Выставить»</b> сама решает, куда положить выбранное: соберёт новый набор или добавит фишки к подходящему набору на столе.</p>
+      <p>Можно и вручную: нажмите на набор на столе — выбранные фишки переедут туда (подходящие наборы подсвечиваются), «＋ Новый набор» создаёт отдельный набор, «На руку» возвращает фишки, выложенные вами в этом ходу.</p>
+      <p>Нажатие на набор без выбранных фишек выделяет его целиком — удобно разбирать. Если забрать фишку из середины длинного ряда, ряд сам распадётся на два правильных. Стол раскладывается сам: группы (одинаковые числа) слева, ряды — справа.</p>
 
       <h3>Цветные рамки</h3>
-      <p><b>Золотая рамка</b> — фишки, которые вы выложили в этом ходу.<br>
-         <b>Голубая рамка</b> — фишки, появившиеся на столе с вашего прошлого хода: сразу видно, что изменилось, пока телефон был у других.</p>
+      <p><b>Рамка вашего цвета</b> — фишки, которые вы выложили в этом ходу.<br>
+         <b>Голубая метка</b> — фишки, появившиеся на столе с вашего прошлого хода. Как только вы начали перекладывать фишки, эти метки гаснут, чтобы не мешать.</p>
+
+      <h3>Таймер</h3>
+      <p>Если на экране настройки включён таймер хода, время видно в шапке. Когда оно истекает, ход завершается сам: перестановки отменяются, игрок берёт фишку из мешка.</p>
 
       <h3>Если ходить нечем</h3>
       <p>Нажмите «Взять фишку» — ход перейдёт дальше, а все ваши перестановки отменятся.</p>
@@ -161,6 +178,17 @@
       <p>Победитель получает сумму фишек, оставшихся у остальных; каждый остальной — эту сумму со знаком минус. Джокер на руке стоит 30.</p>
     </div>
     <button class="btn btn-primary btn-wide" id="btnCloseRules">Понятно</button>
+  </div>
+</div>
+
+<!-- ПОДТВЕРЖДЕНИЕ (вместо системного confirm — поворачивается вместе с игрой) -->
+<div class="overlay" id="overlayConfirm" hidden>
+  <div class="overlay-card">
+    <p class="overlay-text" id="confirmText"></p>
+    <div class="confirm-actions">
+      <button class="btn btn-soft" id="btnConfirmNo">Отмена</button>
+      <button class="btn btn-primary" id="btnConfirmYes">Да</button>
+    </div>
   </div>
 </div>
 

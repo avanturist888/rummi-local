@@ -290,6 +290,57 @@ test('на экране передачи видно, как менялись р�
   assert.deepEqual(state.players[0].seenRacks, [1, 2], 'счётчики зафиксированы после хода');
 });
 
+test('фишка из середины длинного ряда: ряд распадается на два набора', () => {
+  const state = setup({
+    racks: [[R(4)], [B(2)]],
+    board: [[O(3), O(4), O(5), O(6), O(7), O(8), O(9)]],
+  });
+  state.players[0].melded = true;
+  G.moveTiles(state, [O(6)], -1); // забрали шестёрку в новый набор
+
+  assert.equal(state.board.length, 3);
+  assert.deepEqual(state.board[0], [O(3), O(4), O(5)]);
+  assert.deepEqual(state.board[1], [O(7), O(8), O(9)]);
+  assert.deepEqual(state.board[2], [O(6)]);
+});
+
+test('если по бокам не хватает фишек, ряд остаётся одним сломанным', () => {
+  const state = setup({
+    racks: [[R(4)], [B(2)]],
+    board: [[O(3), O(4), O(5), O(6), O(7), O(8)]],
+  });
+  state.players[0].melded = true;
+  G.moveTiles(state, [O(7)], -1); // сбоку остаётся лишь «8»
+
+  assert.equal(state.board.length, 2);
+  assert.equal(state.board[0].length, 5, 'ряд не разбит — его нужно чинить вручную');
+});
+
+test('возврат фишки на руку тоже разбивает сломавшийся ряд', () => {
+  const state = setup({
+    racks: [[], [B(2)]],
+    board: [[O(3), O(4), O(5), O(6), O(7), O(8), O(9)]],
+  });
+  state.players[0].melded = true;
+  G.returnToRack(state, [O(6)]);
+
+  assert.equal(state.board.length, 2);
+  assert.deepEqual(state.board[0], [O(3), O(4), O(5)]);
+  assert.deepEqual(state.board[1], [O(7), O(8), O(9)]);
+});
+
+test('набор, в который фишки доложили, не разбивается', () => {
+  const state = setup({
+    racks: [[O(10)], [B(2)]],
+    board: [[O(3), O(4), O(5), O(6), O(7), O(8), O(9)]],
+  });
+  state.players[0].melded = true;
+  G.moveTiles(state, [O(10)], 0); // докладываем в ряд — он только растёт
+
+  assert.equal(state.board.length, 1);
+  assert.equal(state.board[0].length, 8);
+});
+
 test('tidyBoard раскладывает ряд по порядку', () => {
   const state = setup({ racks: [[B(3), B(1), B(2)], [O(2)]] });
   G.moveTiles(state, [B(3), B(1), B(2)], -1);

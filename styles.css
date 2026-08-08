@@ -135,6 +135,19 @@ button { font: inherit; color: inherit; }
 }
 
 .names { display: flex; flex-direction: column; gap: 8px; }
+.name-row { display: flex; gap: 8px; align-items: center; }
+.name-row input { flex: 1; min-width: 0; }
+/* Кружок цвета игрока: тап перебирает свободные цвета палитры. */
+.color-dot {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.25);
+  background: var(--dot, var(--gold));
+  transition: transform 0.08s ease;
+}
+.color-dot:active { transform: scale(0.92); }
 .names input {
   width: 100%;
   padding: 13px 14px;
@@ -219,12 +232,12 @@ button { font: inherit; color: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: calc(6px + var(--safe-t)) 12px 6px calc(12px + var(--safe-l));
+  padding: calc(6px + var(--safe-t)) calc(12px + var(--safe-r)) 6px calc(12px + var(--safe-l));
   border-bottom: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.2);
 }
 .hud-who { min-width: 0; flex: none; }
-.hud-turn { display: block; font-weight: 800; font-size: 16px; white-space: nowrap; }
+.hud-turn { display: block; font-weight: 800; font-size: 16px; white-space: nowrap; color: var(--pc, var(--ink)); }
 .hud-sub { display: block; font-size: 11.5px; color: var(--ink-dim); white-space: nowrap; }
 .hud-right { display: flex; align-items: center; gap: 7px; flex: none; }
 .chip {
@@ -237,6 +250,10 @@ button { font: inherit; color: inherit; }
 }
 .chip::before { content: "🂠 "; }
 
+.chip-timer { font-variant-numeric: tabular-nums; }
+.chip-timer::before { content: "⏱ "; }
+.chip-timer.is-low { color: var(--danger); border: 1px solid rgba(255, 107, 107, 0.5); }
+
 .hud-players {
   display: flex;
   gap: 5px;
@@ -247,6 +264,9 @@ button { font: inherit; color: inherit; }
 .hud-players::-webkit-scrollbar { display: none; }
 .pchip {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   background: var(--surface);
   border: 1px solid transparent;
   border-radius: 9px;
@@ -256,7 +276,15 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .pchip b { color: var(--ink); font-variant-numeric: tabular-nums; }
-.pchip.is-turn { border-color: rgba(255, 209, 102, 0.6); color: var(--ink); }
+/* Точка цвета игрока — чей это счётчик, видно без чтения имени. */
+.pchip .pdot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pcc, var(--gold));
+  flex: none;
+}
+.pchip.is-turn { border-color: var(--pcc, rgba(255, 209, 102, 0.6)); color: var(--ink); }
 
 /* ---------- стол ---------- */
 
@@ -265,7 +293,7 @@ button { font: inherit; color: inherit; }
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 10px 10px 14px calc(10px + var(--safe-l));
+  padding: 10px calc(10px + var(--safe-r)) 14px calc(10px + var(--safe-l));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -299,7 +327,7 @@ button { font: inherit; color: inherit; }
   margin-right: 5px;
   vertical-align: -1px;
 }
-.lg-you::before { background: var(--gold); }
+.lg-you::before { background: var(--pc, var(--gold)); }
 .lg-them::before { background: var(--new); }
 
 .lock-note {
@@ -343,22 +371,14 @@ button { font: inherit; color: inherit; }
   background: rgba(0, 0, 0, 0.16);
   min-height: calc(var(--tile-h) + 16px);
 }
-.meld.has-drop { padding-left: 30px; }
 .meld.is-bad { border-color: rgba(255, 107, 107, 0.7); background: rgba(255, 107, 107, 0.09); }
-.meld.has-new { border-color: rgba(88, 199, 224, 0.5); }
+.meld.has-new { border-color: rgba(88, 199, 224, 0.4); }
 
-.meld-drop {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 24px;
-  border: 0;
-  border-radius: 11px 0 0 11px;
-  background: var(--gold);
-  color: #241c04;
-  font-size: 15px;
-  font-weight: 700;
+/* Выбранные фишки подходят к этому набору — сюда можно нажать.
+   Только рамка и лёгкий фон: размеры не меняются, интерфейс не скачет. */
+.meld.can-take {
+  border-color: var(--pc, var(--gold));
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .meld-note {
@@ -429,15 +449,25 @@ button { font: inherit; color: inherit; }
   opacity: 0.55;
 }
 
-/* Выложено вами в этом ходу. */
+/* Выложено вами в этом ходу — рамка цвета игрока. */
 .tile.is-you {
-  box-shadow: 0 0 0 2px var(--gold), 0 2px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 2px var(--pc, var(--gold)), 0 2px 4px rgba(0, 0, 0, 0.35);
 }
-/* Появилось на столе с вашего прошлого хода. */
+/* Появилось на столе с вашего прошлого хода: тонкая рамка и точка
+   в углу — заметно при взгляде, но не мельтешит под руками. */
 .tile.is-them {
-  box-shadow: 0 0 0 2.5px var(--new), 0 0 12px rgba(88, 199, 224, 0.45),
-    0 2px 4px rgba(0, 0, 0, 0.35);
-  animation: themPulse 1.3s ease-in-out 2;
+  box-shadow: 0 0 0 1.5px var(--new), 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+.tile.is-them::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--new);
+  box-shadow: 0 0 0 1.5px var(--felt-2);
 }
 .tile.is-hint { animation: pulse 1s ease-in-out 3; }
 .tile.is-sel {
@@ -450,18 +480,52 @@ button { font: inherit; color: inherit; }
   0%, 100% { box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35); }
   50% { box-shadow: 0 0 0 3px var(--ok), 0 4px 10px rgba(0, 0, 0, 0.4); }
 }
-@keyframes themPulse {
-  0%, 100% { box-shadow: 0 0 0 2.5px var(--new), 0 0 12px rgba(88, 199, 224, 0.45), 0 2px 4px rgba(0, 0, 0, 0.35); }
-  50% { box-shadow: 0 0 0 4px var(--new), 0 0 20px rgba(88, 199, 224, 0.8), 0 2px 4px rgba(0, 0, 0, 0.35); }
-}
 
 /* ---------- рука ---------- */
 
 .rack-area {
+  position: relative;
   border-top: 1px solid var(--line);
   background: rgba(0, 0, 0, 0.3);
-  padding: 4px 8px 4px calc(8px + var(--safe-l));
+  padding: 4px calc(8px + var(--safe-r)) 4px calc(8px + var(--safe-l));
 }
+
+/* Комбинации с выбранными фишками: полоска парит над лотком,
+   не двигая остальную раскладку. */
+.combo-bar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 100%;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 5px 8px;
+  border-radius: 12px;
+  background: rgba(9, 26, 21, 0.92);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  z-index: 5;
+}
+.combo-bar::-webkit-scrollbar { display: none; }
+.combo-bar[hidden] { display: none; }
+.combo-label { flex: none; font-size: 11.5px; color: var(--ink-dim); }
+.combo-chip {
+  flex: none;
+  border: 1px solid var(--pc, var(--gold));
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.combo-chip b { color: var(--pc, var(--gold)); font-weight: 700; }
+.combo-chip:active { background: rgba(255, 255, 255, 0.16); }
 .rack {
   display: flex;
   flex-wrap: wrap;
@@ -480,7 +544,7 @@ button { font: inherit; color: inherit; }
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 7px 10px calc(8px + var(--safe-b)) calc(10px + var(--safe-l));
+  padding: 7px calc(10px + var(--safe-r)) calc(8px + var(--safe-b)) calc(10px + var(--safe-l));
   background: rgba(0, 0, 0, 0.4);
   border-top: 1px solid var(--line);
 }
@@ -501,17 +565,19 @@ button { font: inherit; color: inherit; }
 body.land { --tile-w: clamp(24px, 9.5vh, 40px); }
 body.land.is-rot { --tile-w: clamp(24px, 9.5vw, 40px); }
 
+/* Правая колонка расширяется на вырез/индикатор iPhone, чтобы сбоку
+   не оставалось пустой нерабочей полосы. */
 body.land #screenGame:not([hidden]) {
   display: grid;
   grid-template:
     "hud   side" auto
     "board side" minmax(0, 1fr)
     "rack  side" auto
-    / minmax(0, 1fr) 176px;
+    / minmax(0, 1fr) calc(176px + var(--safe-r));
 }
-body.land .hud { grid-area: hud; padding-top: 6px; }
-body.land .board { grid-area: board; }
-body.land .rack-area { grid-area: rack; padding-bottom: 4px; }
+body.land .hud { grid-area: hud; padding-top: 6px; padding-right: 12px; }
+body.land .board { grid-area: board; padding-right: 10px; }
+body.land .rack-area { grid-area: rack; padding-bottom: 4px; padding-right: 8px; }
 
 body.land .actions {
   grid-area: side;
@@ -603,6 +669,10 @@ body.in-game.is-rot #stage {
 .score-list li.is-turn { background: rgba(255, 209, 102, 0.16); font-weight: 700; }
 .score-list .pts { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-dim); }
 .score-list li.is-winner .pts { color: var(--ink); }
+
+.confirm-actions { display: flex; gap: 8px; }
+.confirm-actions .btn { flex: 1; }
+#overlayConfirm .overlay-text { color: var(--ink); font-size: 15.5px; }
 
 .rules { text-align: left; font-size: 14.5px; line-height: 1.55; color: var(--ink-dim); }
 .rules h3 { color: var(--ink); font-size: 15px; margin: 16px 0 5px; }
