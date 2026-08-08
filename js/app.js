@@ -248,9 +248,19 @@ function startGame() {
   localStorage.setItem(AUTOSKIP_KEY, el.optAutoSkip.checked ? '1' : '0');
   rememberPlayers(names);
   state = G.newGame(names, { autoSkip: el.optAutoSkip.checked });
+  // Выравнивание раздачи: добираем фишки всем, у кого нет выхода на 30, —
+  // игра начинается для всех одновременно.
+  let levelled = 0;
+  if (state.autoSkip) {
+    const drew = G.resolveOpenings(state, (tiles) => bestFirstMeld(tiles, MIN_FIRST_MELD));
+    levelled = drew.reduce((a, b) => a + b, 0);
+  }
   for (const player of state.players) player.rack = sortRack(player.rack);
   state.startSnapshot = G.snapshot(state);
   enterGame();
+  if (levelled > 0) {
+    toast(`Раздача выровнена: добрано ${tilesWord(levelled)} — выход на 30 есть у всех.`);
+  }
 }
 
 /** Прокручивает вынужденные ходы, пока не дойдёт до игрока с выбором. */
@@ -897,6 +907,23 @@ if (savedGame) {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker
+      .register('sw.js')
+      .then((reg) => reg.update())
+      .catch(() => {});
+  });
+
+  // Новая версия установилась и перехватила страницу — перезапускаемся,
+  // чтобы не играть в старую из кэша. Партия сохранена, ничего не теряется.
+  let hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) {
+      hadController = true; // самая первая установка — перезапуск не нужен
+      return;
+    }
+    if (reloaded) return;
+    reloaded = true;
+    location.reload();
   });
 }

@@ -184,6 +184,35 @@ test('после хода игрок запоминает стол — сопе�
   assert.deepEqual(state.players[1].seen, [], 'второй игрок стол ещё не видел');
 });
 
+test('выравнивание раздачи: добор по кругу, пока у всех не появится выход', () => {
+  const state = setup({ racks: [[R(1), B(2), K(3)], [R(11), B(11), K(11)]] });
+  // Кладём «спасительную» фишку третьей в мешке: первому нужны три добора.
+  const eleven = 'r11_1';
+  state.pool = [B(4), O(6), eleven, ...state.pool.filter((id) => ![B(4), O(6), eleven].includes(id))];
+
+  const solve = (tiles) => ({
+    reachedTarget: tiles.some((t) => t.num === 11),
+    capped: false,
+  });
+  const drew = G.resolveOpenings(state, solve);
+
+  assert.deepEqual(drew, [3, 0], 'добирает только тот, у кого нет выхода');
+  assert.equal(state.players[0].rack.length, 6);
+  assert.equal(state.players[0].autoDrawn, 3);
+  assert.equal(state.players[0].drawn.length, 3, 'все добранные подсвечены');
+  assert.equal(state.turn, 0, 'очередь хода не тронута');
+  assert.equal(state.board.length, 0, 'стол не тронут');
+});
+
+test('выравнивание останавливается на пустом мешке', () => {
+  const state = setup({ racks: [[R(1), B(2)], [O(2)]] });
+  state.pool = [K(7)];
+
+  const drew = G.resolveOpenings(state, () => ({ reachedTarget: false, capped: false }));
+  assert.equal(drew[0] + drew[1], 1, 'роздана единственная фишка');
+  assert.equal(state.pool.length, 0);
+});
+
 test('автопропуск прокручивает вынужденные ходы до игрока с выбором', () => {
   // У первого игрока выхода нет, у второго есть.
   const state = setup({ racks: [[R(1), B(2), K(3)], [R(11), B(11), K(11)]] });
