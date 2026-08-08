@@ -5,8 +5,9 @@
   "lang": "ru",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
-  "orientation": "portrait",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
   "background_color": "#0a1f19",
   "theme_color": "#0f2a22",
   "icons": [

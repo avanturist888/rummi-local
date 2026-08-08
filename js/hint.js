@@ -1,38 +1,49 @@
 /**
  * Подсказка: ищет один понятный ход для текущего игрока.
- * Полный перебор перестроек стола не делается — только очевидные ходы.
+ * Первый выход считает точный решатель (solver.js), после выхода —
+ * только очевидные ходы без перестройки стола.
  */
 
 import { analyze, findSets, MIN_FIRST_MELD } from './rules.js';
 
-const label = (tile) => (tile.joker ? 'джокер' : `${tile.num}`);
-const listOf = (tiles) => tiles.map(label).join(' · ');
+const label = (tile) => (tile.joker ? '★' : `${tile.num}`);
+const listOf = (tiles) => tiles.map(label).join('·');
 
-export function findHint(state, tilesOf, player) {
-  const rack = tilesOf(state, player.rack);
-  const sets = findSets(rack);
+/**
+ * `outlook` — результат bestFirstMeld от полной руки на начало хода
+ * (считается один раз за ход в app.js); null, если игрок уже вышел.
+ */
+export function findHint(state, tilesOf, player, outlook) {
+  if (!player.melded && outlook) {
+    const byId = new Map(
+      tilesOf(state, JSON.parse(state.startSnapshot).racks[state.turn]).map(
+        (t) => [t.id, t]
+      )
+    );
+    const words = outlook.sets
+      .map((set) => listOf(set.map((id) => byId.get(id))))
+      .join(' и ');
 
-  if (!player.melded) {
-    const combo = pickCombo(sets, MIN_FIRST_MELD);
-    if (combo) {
-      const total = combo.reduce((sum, s) => sum + s.points, 0);
-      const words = combo.map((s) => listOf(s.tiles)).join(' и ');
+    if (outlook.reachedTarget) {
       return {
         found: true,
-        tiles: combo.flatMap((s) => s.tiles.map((t) => t.id)),
-        text: `Первый выход на ${total} очк.: выложите ${words}.`,
+        tiles: outlook.sets.flat(),
+        text: `Выход на ${outlook.points} очк.: выложите ${words}.`,
       };
     }
-    const best = sets[0];
-    if (best) {
+    if (!outlook.capped) {
       return {
         found: false,
-        tiles: best.tiles.map((t) => t.id),
-        text: `Набор есть (${listOf(best.tiles)}, ${best.points} очк.), но для первого выхода нужно ${MIN_FIRST_MELD}. Берите фишку.`,
+        tiles: outlook.sets.flat(),
+        text: outlook.points > 0
+          ? `Из этой руки соберётся максимум ${outlook.points} очк., для выхода нужно ${MIN_FIRST_MELD}. Берите фишку.`
+          : 'Из этой руки не собрать ни одного набора — берите фишку.',
       };
     }
-    return { found: false, tiles: [], text: 'Готового набора нет — берите фишку из мешка.' };
+    return { found: false, tiles: [], text: 'Слишком много вариантов — проверьте руку сами.' };
   }
+
+  const rack = tilesOf(state, player.rack);
 
   // Одна фишка с руки к уже лежащему набору.
   for (let i = 0; i < state.board.length; i++) {
@@ -42,13 +53,13 @@ export function findHint(state, tilesOf, player) {
         return {
           found: true,
           tiles: [tile.id],
-          meldIndex: i,
-          text: `Фишку «${label(tile)}» можно добавить к набору №${i + 1}.`,
+          text: `Фишку «${label(tile)}» можно добавить к набору «${listOf(meld)}».`,
         };
       }
     }
   }
 
+  const sets = findSets(rack);
   if (sets.length) {
     const best = sets[0];
     return {
@@ -63,28 +74,4 @@ export function findHint(state, tilesOf, player) {
     tiles: [],
     text: 'Простых ходов нет. Попробуйте перестроить наборы на столе или возьмите фишку.',
   };
-}
-
-/** Жадно набирает непересекающиеся наборы до нужной суммы очков. */
-function pickCombo(sets, target) {
-  for (let seed = 0; seed < Math.min(sets.length, 40); seed++) {
-    const used = new Set();
-    const chosen = [];
-    let total = 0;
-
-    const take = (set) => {
-      if (set.tiles.some((t) => used.has(t.id))) return false;
-      set.tiles.forEach((t) => used.add(t.id));
-      chosen.push(set);
-      total += set.points;
-      return true;
-    };
-
-    take(sets[seed]);
-    for (let i = 0; i < sets.length && total < target; i++) {
-      if (i !== seed) take(sets[i]);
-    }
-    if (total >= target) return chosen;
-  }
-  return null;
 }

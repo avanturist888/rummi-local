@@ -1,6 +1,6 @@
 /* Офлайн-кэш. Меняйте VERSION при каждом обновлении файлов. */
 
-const VERSION = 'rummikub-v1';
+const VERSION = 'rummikub-v2';
 
 const ASSETS = [
   './',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/game.js',
   './js/rules.js',
   './js/hint.js',
+  './js/solver.js',
   './icons/icon.svg',
   './icons/icon-256.png',
   './icons/icon-512.png',

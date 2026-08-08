@@ -175,6 +175,15 @@ test('отмена возвращает предыдущий шаг', () => {
   assert.equal(state.players[0].rack.length, 3);
 });
 
+test('после хода игрок запоминает стол — сопернику эти фишки видны как новые', () => {
+  const state = setup({ racks: [[R(11), B(11), K(11), R(5)], [O(2)]] });
+  G.moveTiles(state, [R(11), B(11), K(11)], -1);
+  G.endTurn(state);
+
+  assert.deepEqual([...state.players[0].seen].sort(), [B(11), K(11), R(11)].sort());
+  assert.deepEqual(state.players[1].seen, [], 'второй игрок стол ещё не видел');
+});
+
 test('tidyBoard раскладывает ряд по порядку', () => {
   const state = setup({ racks: [[B(3), B(1), B(2)], [O(2)]] });
   G.moveTiles(state, [B(3), B(1), B(2)], -1);

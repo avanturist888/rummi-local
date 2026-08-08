@@ -40,7 +40,7 @@
 
     <button class="btn btn-primary btn-wide" id="btnStart">Начать партию</button>
     <button class="btn btn-ghost btn-wide" id="btnRulesSetup">Как играть</button>
-    <p class="hint-note">Устройство передаётся по кругу: перед своим ходом каждый нажимает «Я готов», чужие фишки при этом скрыты.</p>
+    <p class="hint-note">Устройство передаётся по кругу: перед своим ходом каждый нажимает «Я готов», чужие фишки при этом скрыты. Удобнее всего играть, держа телефон горизонтально.</p>
   </div>
 </section>
 
@@ -51,8 +51,10 @@
       <span class="hud-turn" id="hudName">—</span>
       <span class="hud-sub" id="hudSub">—</span>
     </div>
+    <div class="hud-players" id="hudPlayers" title="Фишки на руках"></div>
     <div class="hud-right">
-      <span class="chip" id="hudPool" title="Фишек в мешке">🂠 0</span>
+      <span class="chip" id="hudPool" title="Фишек в мешке">0</span>
+      <button class="icon-btn" id="btnFull" aria-label="Во весь экран">⛶</button>
       <button class="icon-btn" id="btnMenu" aria-label="Меню">☰</button>
     </div>
   </header>
@@ -60,21 +62,20 @@
   <main class="board" id="board" aria-label="Стол"></main>
 
   <div class="rack-area">
-    <div class="rack-bar">
-      <span class="rack-title">Ваши фишки <b id="rackCount">0</b></span>
-      <div class="rack-tools">
-        <button class="mini-btn" id="btnSort">Сортировать</button>
-        <button class="mini-btn" id="btnHint">Подсказка</button>
-        <button class="mini-btn" id="btnUndo">Отменить</button>
-      </div>
-    </div>
     <div class="rack" id="rack"></div>
   </div>
 
   <footer class="actions">
-    <button class="btn btn-soft" id="btnToRack">На руку</button>
-    <button class="btn btn-soft" id="btnDraw">Взять фишку</button>
-    <button class="btn btn-primary btn-grow" id="btnEnd">Ход сделан</button>
+    <div class="actions-minis">
+      <button class="mini-btn" id="btnSort">⇅ цвет</button>
+      <button class="mini-btn" id="btnHint">Подсказка</button>
+      <button class="mini-btn" id="btnUndo">Отменить</button>
+    </div>
+    <div class="actions-main">
+      <button class="btn btn-soft" id="btnToRack">На руку</button>
+      <button class="btn btn-soft" id="btnDraw">Взять фишку</button>
+      <button class="btn btn-primary btn-grow" id="btnEnd">Ход сделан</button>
+    </div>
   </footer>
 </section>
 
@@ -84,6 +85,7 @@
     <p class="overlay-kicker">Передайте устройство</p>
     <h2 class="overlay-name" id="passName">Игрок</h2>
     <p class="overlay-text" id="passInfo">Чужие фишки скрыты. Нажмите, когда будете готовы.</p>
+    <ul class="score-list" id="passStats"></ul>
     <button class="btn btn-primary btn-wide" id="btnReady">Я готов</button>
   </div>
 </div>
@@ -123,15 +125,19 @@
          Джокер заменяет любую фишку.</p>
 
       <h3>Первый выход</h3>
-      <p>Чтобы начать выкладывать, нужно за один ход собрать наборы минимум на <b>30 очков</b> только из своих фишек. Пока вы не вышли, трогать чужие наборы на столе нельзя.</p>
+      <p>Чтобы начать выкладывать, нужно за один ход собрать наборы минимум на <b>30 очков</b> только из своих фишек. Пока вы не вышли, трогать чужие наборы на столе нельзя. Если из руки 30 очков не собрать в принципе, игра сама подскажет взять фишку.</p>
 
       <h3>После выхода</h3>
       <p>Можно добавлять фишки к любым наборам на столе и перестраивать их как угодно — лишь бы к концу хода каждый набор на столе был правильным и хотя бы одна ваша фишка ушла из руки.</p>
       <p>Фишку, которая уже лежит на столе, забрать на руку нельзя — её можно только переставить в другой набор. Это касается и джокеров.</p>
 
       <h3>Управление</h3>
-      <p>Нажмите на фишку, чтобы выбрать её (можно несколько). Затем нажмите на набор на столе — фишки переедут туда. Нажатие на «＋ Новый набор» создаст отдельный набор. Кнопка «На руку» вернёт ваши сегодняшние фишки обратно.</p>
-      <p>Нажатие на пустое место внутри набора (когда ничего не выбрано) выделяет весь набор — так его удобно разбирать. Жёлтая точка на фишке означает, что вы выложили её в этом ходу.</p>
+      <p>Нажмите на фишки, чтобы выбрать (можно несколько), затем нажмите на набор на столе — фишки переедут туда. «＋ Новый набор» создаёт отдельный набор, «На руку» возвращает фишки, выложенные вами в этом ходу.</p>
+      <p>Нажатие на набор без выбранных фишек выделяет его целиком — удобно разбирать. Стол раскладывается сам: группы (одинаковые числа) слева, ряды — справа.</p>
+
+      <h3>Цветные рамки</h3>
+      <p><b>Золотая рамка</b> — фишки, которые вы выложили в этом ходу.<br>
+         <b>Голубая рамка</b> — фишки, появившиеся на столе с вашего прошлого хода: сразу видно, что изменилось, пока телефон был у других.</p>
 
       <h3>Если ходить нечем</h3>
       <p>Нажмите «Взять фишку» — ход перейдёт дальше, а все ваши перестановки отменятся.</p>

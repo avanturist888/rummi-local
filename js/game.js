@@ -11,7 +11,7 @@ import {
   MIN_FIRST_MELD,
 } from './rules.js';
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 function shuffle(list) {
   const a = list.slice();
@@ -33,6 +33,9 @@ export function newGame(names) {
     melded: false,
     score: 0,
     passed: false,
+    // Каким игрок видел стол в конце своего последнего хода —
+    // всё, чего здесь нет, для него новое.
+    seen: [],
   }));
 
   const pool = deck.map((t) => t.id);
@@ -65,6 +68,13 @@ export const currentPlayer = (state) => state.players[state.turn];
 
 export function meldInfo(state, meld) {
   return analyze(tilesOf(state, meld));
+}
+
+/** Короткое имя набора для сообщений: «7·7·8» или «4·★·6». */
+export function meldLabel(state, meld) {
+  return tilesOf(state, meld)
+    .map((t) => (t.joker ? '★' : t.num))
+    .join('·');
 }
 
 /* ---------- снимки для отмены ---------- */
@@ -181,7 +191,8 @@ export function validateTurn(state) {
   const broken = state.board.findIndex((meld) => !analyze(tilesOf(state, meld)).valid);
   if (broken >= 0) {
     const info = analyze(tilesOf(state, state.board[broken]));
-    return { ok: false, error: `Набор №${broken + 1} собран неверно: ${info.reason}.` };
+    const label = meldLabel(state, state.board[broken]);
+    return { ok: false, error: `Набор «${label}» собран неверно: ${info.reason}.` };
   }
 
   // Фишки со стола нельзя забирать на руку.
@@ -280,6 +291,7 @@ export function drawAndPass(state) {
 }
 
 function nextTurn(state) {
+  currentPlayer(state).seen = state.board.flat();
   state.turn = (state.turn + 1) % state.players.length;
   if (state.turn === 0) state.round++;
   state.phase = 'pass';
