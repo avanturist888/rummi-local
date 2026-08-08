@@ -12,6 +12,7 @@ const SAVE_KEY = 'rummikub:save:v5';
 const NAMES_KEY = 'rummikub:names';
 const AUTOSKIP_KEY = 'rummikub:autoskip';
 const SERIES_KEY = 'rummikub:series';
+const ROSTER_KEY = 'rummikub:roster';
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,6 +49,7 @@ const el = {
   btnSeriesReset: $('btnSeriesReset'),
   btnNewGame: $('btnNewGame'),
   optAutoSkip: $('optAutoSkip'),
+  rosterChips: $('rosterChips'),
   overlayMenu: $('overlayMenu'),
   overlayRules: $('overlayRules'),
   toast: $('toast'),
@@ -162,6 +164,52 @@ function loadAutoSkipPref() {
   el.optAutoSkip.checked = localStorage.getItem(AUTOSKIP_KEY) !== '0';
 }
 
+/* ---------- запомненные игроки ---------- */
+
+function readRoster() {
+  try {
+    const list = JSON.parse(localStorage.getItem(ROSTER_KEY)) || [];
+    return Array.isArray(list) ? list.filter((n) => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRoster(list) {
+  try { localStorage.setItem(ROSTER_KEY, JSON.stringify(list.slice(0, 12))); } catch { /* пусть */ }
+}
+
+/** Игроки этой партии встают в начало списка (недавние — первыми). */
+function rememberPlayers(names) {
+  const seen = new Set(names.map((n) => n.toLowerCase()));
+  const rest = readRoster().filter((n) => !seen.has(n.toLowerCase()));
+  writeRoster([...names, ...rest]);
+}
+
+function renderRoster() {
+  const used = new Set(
+    [...el.nameInputs.querySelectorAll('input')].map((i) => i.value.trim().toLowerCase())
+  );
+  const free = readRoster().filter((n) => !used.has(n.toLowerCase()));
+  el.rosterChips.hidden = !free.length;
+  el.rosterChips.innerHTML = '';
+  for (const name of free) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'roster-chip';
+    chip.dataset.name = name;
+    const label = document.createElement('span');
+    label.textContent = name;
+    const del = document.createElement('span');
+    del.className = 'x';
+    del.dataset.del = name;
+    del.textContent = '✕';
+    del.setAttribute('aria-label', `Забыть игрока ${name}`);
+    chip.append(label, del);
+    el.rosterChips.appendChild(chip);
+  }
+}
+
 function renderNameInputs() {
   const saved = JSON.parse(localStorage.getItem(NAMES_KEY) || '[]');
   const previous = [...el.nameInputs.querySelectorAll('input')].map((i) => i.value);
@@ -189,6 +237,7 @@ function showSetup() {
   el.btnContinue.hidden = !loadSave();
   loadAutoSkipPref();
   renderNameInputs();
+  renderRoster();
 }
 
 function startGame() {
@@ -197,6 +246,7 @@ function startGame() {
   );
   localStorage.setItem(NAMES_KEY, JSON.stringify(names));
   localStorage.setItem(AUTOSKIP_KEY, el.optAutoSkip.checked ? '1' : '0');
+  rememberPlayers(names);
   state = G.newGame(names, { autoSkip: el.optAutoSkip.checked });
   for (const player of state.players) player.rack = sortRack(player.rack);
   state.startSnapshot = G.snapshot(state);
@@ -672,7 +722,31 @@ el.countPicker.addEventListener('click', (e) => {
   playerCount = Number(btn.dataset.count);
   [...el.countPicker.children].forEach((c) => c.classList.toggle('is-active', c === btn));
   renderNameInputs();
+  renderRoster();
 });
+
+// Тап по чипу — имя встаёт в первое свободное поле; ✕ — забыть игрока.
+el.rosterChips.addEventListener('click', (e) => {
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    writeRoster(readRoster().filter((n) => n !== del.dataset.del));
+    renderRoster();
+    return;
+  }
+  const chip = e.target.closest('.roster-chip');
+  if (!chip) return;
+  const inputs = [...el.nameInputs.querySelectorAll('input')];
+  const empty = inputs.find((i) => !i.value.trim());
+  if (!empty) {
+    toast('Все места заняты — очистите одно из полей.');
+    return;
+  }
+  empty.value = chip.dataset.name;
+  renderRoster();
+});
+
+// Имя, набранное вручную, прячет совпадающий чип.
+el.nameInputs.addEventListener('input', renderRoster);
 
 el.btnStart.addEventListener('click', startGame);
 
