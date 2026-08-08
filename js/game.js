@@ -340,34 +340,33 @@ export function beginTurn(state) {
 }
 
 /**
- * Выравнивание раздачи: сразу после раздачи, до первого хода, каждый,
- * у кого не собирается первый выход, по кругу добирает фишки, пока выход
- * не появится у всех (или не кончится мешок). Игра начинается для всех
- * одновременно — никто не ждёт, пока его «догонит» автопропуск.
- *
- * Добор — вынужденный ход (другого легального нет), порядок по кругу
- * сохранён, а возможность выхода зависит только от своей руки, поэтому
- * партия эквивалентна сыгранной вручную.
+ * Выравнивание раздачи: сразу после раздачи, до первого хода, ВСЕ игроки
+ * по кругу добирают по одной фишке — как в каноничном доборе — до тех
+ * пор, пока первый выход на 30 не появится у каждого (или не кончится
+ * мешок). Добирают именно все, а не только «застрявшие»: руки остаются
+ * одинакового размера, никто не получает преимущества.
  *
  * Возвращает, сколько фишек добрал каждый игрок.
  */
 export function resolveOpenings(state, solve) {
   const drew = state.players.map(() => 0);
-  let progress = true;
   let guard = 0;
-  while (progress && state.pool.length && guard++ < 300) {
-    progress = false;
-    for (const player of state.players) {
-      if (!state.pool.length) break;
-      if (player.melded) continue;
-      const res = solve(tilesOf(state, player.rack));
-      if (res.capped || res.reachedTarget) continue;
+
+  const someoneStuck = () =>
+    state.players.some((p) => {
+      if (p.melded) return false;
+      const res = solve(tilesOf(state, p.rack));
+      return !res.capped && !res.reachedTarget;
+    });
+
+  while (state.pool.length && guard++ < 300 && someoneStuck()) {
+    for (let i = 0; i < state.players.length && state.pool.length; i++) {
+      const player = state.players[i];
       const id = state.pool.shift();
       player.rack.push(id);
       player.drawn.push(id);
       player.autoDrawn += 1;
-      drew[state.players.indexOf(player)] += 1;
-      progress = true;
+      drew[i] += 1;
     }
   }
   return drew;

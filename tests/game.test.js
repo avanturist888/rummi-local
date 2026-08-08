@@ -184,9 +184,9 @@ test('после хода игрок запоминает стол — сопе�
   assert.deepEqual(state.players[1].seen, [], 'второй игрок стол ещё не видел');
 });
 
-test('выравнивание раздачи: добор по кругу, пока у всех не появится выход', () => {
+test('выравнивание раздачи: добирают ВСЕ по кругу, пока выход не появится у каждого', () => {
   const state = setup({ racks: [[R(1), B(2), K(3)], [R(11), B(11), K(11)]] });
-  // Кладём «спасительную» фишку третьей в мешке: первому нужны три добора.
+  // «Спасительная» фишка достанется первому на втором круге добора.
   const eleven = 'r11_1';
   state.pool = [B(4), O(6), eleven, ...state.pool.filter((id) => ![B(4), O(6), eleven].includes(id))];
 
@@ -196,12 +196,22 @@ test('выравнивание раздачи: добор по кругу, по�
   });
   const drew = G.resolveOpenings(state, solve);
 
-  assert.deepEqual(drew, [3, 0], 'добирает только тот, у кого нет выхода');
-  assert.equal(state.players[0].rack.length, 6);
-  assert.equal(state.players[0].autoDrawn, 3);
-  assert.equal(state.players[0].drawn.length, 3, 'все добранные подсвечены');
+  assert.deepEqual(drew, [2, 2], 'добирают оба — и застрявший, и тот, у кого выход уже был');
+  assert.equal(state.players[0].rack.length, 5);
+  assert.equal(state.players[1].rack.length, 5, 'руки остались одинакового размера');
+  assert.equal(state.players[0].autoDrawn, 2);
+  assert.equal(state.players[1].autoDrawn, 2);
+  assert.equal(state.players[0].drawn.length, 2, 'добранные подсвечены');
+  assert.ok(state.players[0].rack.includes(eleven), 'застрявший получил свой выход');
   assert.equal(state.turn, 0, 'очередь хода не тронута');
   assert.equal(state.board.length, 0, 'стол не тронут');
+});
+
+test('выравнивание не трогает раздачу, где выход есть у всех сразу', () => {
+  const state = setup({ racks: [[R(11), B(11), K(11)], [R(12), B(12), K(12)]] });
+  const drew = G.resolveOpenings(state, () => ({ reachedTarget: true, capped: false }));
+  assert.deepEqual(drew, [0, 0]);
+  assert.equal(state.players[0].rack.length, 3);
 });
 
 test('выравнивание останавливается на пустом мешке', () => {

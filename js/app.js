@@ -250,16 +250,16 @@ function startGame() {
   state = G.newGame(names, { autoSkip: el.optAutoSkip.checked });
   // Выравнивание раздачи: добираем фишки всем, у кого нет выхода на 30, —
   // игра начинается для всех одновременно.
-  let levelled = 0;
+  let rounds = 0;
   if (state.autoSkip) {
     const drew = G.resolveOpenings(state, (tiles) => bestFirstMeld(tiles, MIN_FIRST_MELD));
-    levelled = drew.reduce((a, b) => a + b, 0);
+    rounds = Math.max(...drew);
   }
   for (const player of state.players) player.rack = sortRack(player.rack);
   state.startSnapshot = G.snapshot(state);
   enterGame();
-  if (levelled > 0) {
-    toast(`Раздача выровнена: добрано ${tilesWord(levelled)} — выход на 30 есть у всех.`);
+  if (rounds > 0) {
+    toast(`Раздача выровнена: все добрали по ${tilesWord(rounds)} — выход на 30 есть у каждого.`);
   }
 }
 
@@ -367,7 +367,7 @@ function renderPass(player) {
   el.passName.textContent = player.name;
   el.passInfo.textContent =
     (player.autoDrawn > 0
-      ? `Выход не собирался, и вы автоматически взяли ${tilesWord(player.autoDrawn)} — они подсвечены на руке. `
+      ? `Вы автоматически добрали ${tilesWord(player.autoDrawn)} — они подсвечены на руке. `
       : '') +
     (news.size
       ? `С вашего прошлого хода на столе ${tilesWord(news.size)} — они подсвечены голубым. `
