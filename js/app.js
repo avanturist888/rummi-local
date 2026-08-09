@@ -82,6 +82,9 @@ let meldCache = null; // расчёт первого выхода: один ра
 let timerSec = 0; // выбранный на экране настройки таймер хода
 let playerColorIdx = [0, 1, 2, 3]; // выбранные цвета игроков (индексы палитры)
 let confirmResolve = null;
+let smartCache = null; // «умная» раскладка лотка: пересчёт только при смене руки
+let dimIds = new Set(); // фишки лотка, которые не женятся с выбранными
+let mateIds = new Set(); // фишки стола, которые подходят к выбранным
 
 /* ---------- вспомогательное ---------- */
 
@@ -410,9 +413,17 @@ function render() {
   renderHudPlayers();
   updateTimerChip();
 
+  computeMarks(busy, player);
+
+  // Полная перерисовка не должна сбрасывать прокрутку: иначе фишки
+  // сдвигаются под пальцем и следующий тап попадает не туда.
+  const boardScroll = el.board.scrollTop;
+  const rackScroll = el.rack.scrollTop;
   renderBoard(locked, outlook);
   renderRack();
   renderCombos();
+  el.board.scrollTop = boardScroll;
+  el.rack.scrollTop = rackScroll;
 
   el.btnUndo.disabled = busy || state.history.length === 0;
   el.btnToRack.disabled = busy || selection.size === 0;
@@ -420,7 +431,20 @@ function render() {
   el.btnDraw.disabled = busy;
   el.btnEnd.disabled = busy || locked;
   el.btnSort.disabled = busy;
-  el.sortLabel.textContent = sortMode === 'run' ? 'цвет' : 'число';
+  el.sortLabel.textContent = { run: 'цвет', group: 'число', smart: 'умно' }[sortMode];
+
+  // «Выставить» зеленеет, когда выбранное реально ляжет правильным ходом:
+  // само по себе валидный набор или целиком подходит к набору на столе.
+  const selIds = [...selection];
+  const placeReady =
+    !busy &&
+    selIds.length > 0 &&
+    (G.meldInfo(state, selIds).valid ||
+      (player.melded &&
+        state.board.some(
+          (m) => !m.some((id) => selection.has(id)) && G.meldInfo(state, [...m, ...selIds]).valid
+        )));
+  el.btnPlace.classList.toggle('is-ready', placeReady);
   el.drawLabel.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
 
   // Кнопка хода загорается зелёным только когда ход реально готов;
@@ -483,6 +507,9 @@ function renderPass(player) {
   const news = newSinceLastSeen();
   el.passName.textContent = player.name;
   el.passName.style.color = playerColor(player);
+  // Кнопка «Я готов» — цвета игрока, который должен её нажать.
+  el.btnReady.style.background = playerColor(player);
+  el.btnReady.style.color = '#1c1508';
   el.passInfo.textContent =
     (player.autoDrawn > 0
       ? `Вы автоматически добрали ${tilesWord(player.autoDrawn)} — они подсвечены на руке. `
@@ -527,6 +554,8 @@ function tileNode(tile, shownValue, fresh, news) {
   else if (news?.has(tile.id)) classes.push('is-them');
   if (selection.has(tile.id)) classes.push('is-sel');
   if (hintIds.has(tile.id)) classes.push('is-hint');
+  if (dimIds.has(tile.id)) classes.push('is-dim');
+  if (mateIds.has(tile.id)) classes.push('is-mate');
   node.dataset.id = tile.id;
   node.textContent = tile.joker ? '★' : String(tile.num);
   if (tile.joker && shownValue) {
@@ -553,6 +582,18 @@ function meldRow(entry, fresh, news, canTake) {
     row.appendChild(tileNode(tile, info.valid ? info.values[i] : null, fresh, news));
   });
 
+  // Свободная ячейка «＋» в конце набора: в неё удобно попадать пальцем,
+  // тап кладёт выбранные фишки в этот набор. Полному набору она не нужна.
+  const full =
+    info.valid && ((info.type === 'group' && meld.length >= 4) || meld.length >= 13);
+  if (state.phase === 'play' && !full) {
+    const slot = document.createElement('button');
+    slot.className = 'slot-add' + (canTake?.has(index) ? ' is-hot' : '');
+    slot.textContent = '＋';
+    slot.setAttribute('aria-label', 'Положить выбранные фишки в этот набор');
+    row.appendChild(slot);
+  }
+
   if (!info.valid) {
     const note = document.createElement('span');
     note.className = 'meld-note';
@@ -567,7 +608,12 @@ function renderBoard(locked, outlook) {
   // Чужие новинки подсвечены, только пока игрок сам ничего не трогал:
   // как только начались перестановки, метки гаснут и не путаются под руками.
   const news = state.history.length ? new Set() : newSinceLastSeen();
+  const lockedIds = lockedOnBoard();
   el.board.innerHTML = '';
+
+  // Сводка выделения липнет к верху стола: что выбрано, видно всегда,
+  // без прокрутки в поисках нажатых фишек.
+  if (state.phase === 'play' && selection.size) el.board.appendChild(selBar());
 
   if (locked) {
     const note = document.createElement('div');
@@ -583,9 +629,8 @@ function renderBoard(locked, outlook) {
     const note = document.createElement('p');
     note.className = 'board-empty';
     note.innerHTML =
-      'Стол пуст.<br>Выберите фишки внизу и нажмите <b>＋ Новый набор</b>.';
+      'Стол пуст.<br>Выберите фишки внизу и нажмите <b>Выставить</b>.';
     el.board.appendChild(note);
-    el.board.appendChild(newZone());
     return;
   }
 
@@ -613,30 +658,54 @@ function renderBoard(locked, outlook) {
     info: G.meldInfo(state, meld),
   }));
 
-  // К каким наборам выбранные фишки подходят целиком (после выхода).
+  // К каким наборам выбранные фишки подходят целиком. До первого выхода
+  // достраивать можно только собственные новые наборы.
   const player = G.currentPlayer(state);
   const canTake = new Set();
-  if (selection.size && player.melded) {
+  if (selection.size) {
     const selIds = [...selection];
     for (const entry of entries) {
       if (entry.meld.some((id) => selection.has(id))) continue;
+      if (!player.melded && entry.meld.some((id) => lockedIds.has(id))) continue;
       if (G.meldInfo(state, [...entry.meld, ...selIds]).valid) canTake.add(entry.index);
     }
   }
 
-  // Недособранные наборы — сверху на всю ширину, их нужно чинить.
-  for (const entry of entries.filter((e) => !e.info.valid)) {
+  // Разобранный набор остаётся на своём месте в своей колонке и просто
+  // подсвечивается красным — не улетает в начало стола. Колонку выбираем
+  // по оставшимся фишкам: одинаковые числа — к группам, один цвет — к рядам.
+  const naturalsOf = (e) => G.tilesOf(state, e.meld).filter((t) => !t.joker);
+  for (const e of entries) {
+    if (e.info.valid) {
+      e.zone = e.info.type;
+      e.key =
+        e.info.type === 'group'
+          ? [e.info.values[0], 0]
+          : [
+              COLORS.indexOf(e.info.ordered.find((t) => !t.joker).color),
+              e.info.values[0],
+            ];
+      continue;
+    }
+    const n = naturalsOf(e);
+    if (n.length && n.every((t) => t.num === n[0].num)) {
+      e.zone = 'group';
+      e.key = [n[0].num, 0];
+    } else if (n.length && n.every((t) => t.color === n[0].color)) {
+      e.zone = 'run';
+      e.key = [COLORS.indexOf(n[0].color), Math.min(...n.map((t) => t.num))];
+    } else {
+      e.zone = 'repair';
+    }
+  }
+  const byKey = (a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1];
+  const groups = entries.filter((e) => e.zone === 'group').sort(byKey);
+  const runs = entries.filter((e) => e.zone === 'run').sort(byKey);
+
+  // Совсем разнобойная кучка (редкость) — чинить сверху на всю ширину.
+  for (const entry of entries.filter((e) => e.zone === 'repair')) {
     el.board.appendChild(meldRow(entry, fresh, news, canTake));
   }
-
-  const groups = entries
-    .filter((e) => e.info.valid && e.info.type === 'group')
-    .sort((a, b) => a.info.values[0] - b.info.values[0]);
-  const colorOf = (e) =>
-    COLORS.indexOf(e.info.ordered.find((t) => !t.joker).color);
-  const runs = entries
-    .filter((e) => e.info.valid && e.info.type === 'run')
-    .sort((a, b) => colorOf(a) - colorOf(b) || a.info.values[0] - b.info.values[0]);
 
   const zones = document.createElement('div');
   zones.className = 'zones';
@@ -645,7 +714,91 @@ function renderBoard(locked, outlook) {
     zoneEl('Ряды', runs, fresh, news, canTake)
   );
   el.board.appendChild(zones);
-  el.board.appendChild(newZone());
+}
+
+/** Полоска «Выбрано: …» — мини-копии выбранных фишек; тап снимает выбор. */
+function selBar() {
+  const bar = document.createElement('div');
+  bar.className = 'sel-bar';
+  const cap = document.createElement('span');
+  cap.className = 'sel-cap';
+  cap.textContent = 'Выбрано:';
+  bar.appendChild(cap);
+  for (const tile of G.tilesOf(state, [...selection])) {
+    const chip = document.createElement('button');
+    chip.className = `sel-chip c-${tile.color}`;
+    chip.dataset.id = tile.id;
+    chip.textContent = tile.joker ? '★' : String(tile.num);
+    bar.appendChild(chip);
+  }
+  const clear = document.createElement('button');
+  clear.className = 'sel-clear';
+  clear.setAttribute('aria-label', 'Снять всё выделение');
+  clear.textContent = '✕';
+  bar.appendChild(clear);
+  return bar;
+}
+
+/**
+ * Умное подсвечивание: с чем «женится» выбранное. На лотке гаснут фишки,
+ * которые ни в какой набор с выбранными не лягут (5 красная и 1 чёрная
+ * не поженятся никогда); на столе зелёным помечаются фишки, которые можно
+ * забрать, не сломав набор (край ряда 4+, любая из четвёрки), и которые
+ * подходят к выбранным.
+ */
+function computeMarks(busy, player) {
+  dimIds = new Set();
+  mateIds = new Set();
+  if (busy || !selection.size) return;
+
+  const selTiles = G.tilesOf(state, [...selection]);
+  const rackTiles = G.tilesOf(state, player.rack).filter((t) => !selection.has(t.id));
+  const rackJokers = rackTiles.filter((t) => t.joker).length;
+  const rackHas = new Set(rackTiles.filter((t) => !t.joker).map((t) => t.color + t.num));
+
+  // Может ли `tile` вместе с выбранными дорасти до правильного набора:
+  // группа — одно число без повторов цвета; ряд — один цвет без повторов,
+  // а дыры закрываются фишками с лотка или джокерами.
+  const marries = (tile) => {
+    const all = [...selTiles, tile];
+    const naturals = all.filter((t) => !t.joker);
+    if (!naturals.length) return true;
+    const jokersIn = all.length - naturals.length;
+
+    if (all.length <= 4 && naturals.every((t) => t.num === naturals[0].num)) {
+      const colors = naturals.map((t) => t.color);
+      if (new Set(colors).size === colors.length) return true;
+    }
+
+    const color = naturals[0].color;
+    if (naturals.every((t) => t.color === color)) {
+      const nums = naturals.map((t) => t.num);
+      if (new Set(nums).size === nums.length) {
+        let spare = jokersIn + rackJokers;
+        for (let n = Math.min(...nums) + 1; n < Math.max(...nums); n++) {
+          if (nums.includes(n) || rackHas.has(color + n)) continue;
+          if (spare-- <= 0) return false;
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const tile of rackTiles) if (!marries(tile)) dimIds.add(tile.id);
+
+  if (player.melded) {
+    for (const meld of state.board) {
+      if (meld.some((id) => selection.has(id))) continue;
+      const info = G.meldInfo(state, meld);
+      if (!info.valid || meld.length < 4) continue;
+      const cand =
+        info.type === 'run'
+          ? [info.ordered[0], info.ordered[info.ordered.length - 1]]
+          : info.ordered;
+      for (const t of cand) if (marries(t)) mateIds.add(t.id);
+    }
+  }
 }
 
 function zoneEl(title, list, fresh, news, canTake) {
@@ -662,16 +815,6 @@ function zoneEl(title, list, fresh, news, canTake) {
     zone.appendChild(empty);
   }
   for (const entry of list) zone.appendChild(meldRow(entry, fresh, news, canTake));
-  return zone;
-}
-
-function newZone() {
-  const zone = document.createElement('button');
-  zone.className = 'new-zone' + (selection.size ? ' is-armed' : '');
-  zone.id = 'newZone';
-  zone.textContent = selection.size
-    ? `＋ Новый набор (${selection.size})`
-    : '＋ Новый набор';
   return zone;
 }
 
@@ -692,6 +835,50 @@ function sortRack(ids) {
     .map((t) => t.id);
 }
 
+/**
+ * «Умная» раскладка лотка: жадно выбираем непересекающиеся готовые наборы
+ * (сначала самые дорогие — их шанс выставить выше), раскладываем их слева
+ * направо от меньших чисел к большим и отделяем пробелами; остаток — по
+ * возрастанию номинала. Что можно выставить обособленно, видно сразу.
+ */
+function smartArrange(ids) {
+  const key = ids.slice().sort().join('|');
+  if (smartCache && smartCache.key === key) return smartCache.res;
+
+  const tiles = G.tilesOf(state, ids);
+  const used = new Set();
+  const clusters = [];
+  for (const s of findSets(tiles)) {
+    if (s.tiles.some((t) => used.has(t.id))) continue;
+    s.tiles.forEach((t) => used.add(t.id));
+    const info = G.meldInfo(state, s.tiles.map((t) => t.id));
+    clusters.push({ ids: info.ordered.map((t) => t.id), min: Math.min(...info.values) });
+  }
+  clusters.sort((a, b) => a.min - b.min);
+
+  const rest = tiles
+    .filter((t) => !used.has(t.id))
+    .sort(
+      (a, b) =>
+        (a.joker ? 99 : a.num) - (b.joker ? 99 : b.num) ||
+        COLORS.indexOf(a.color) - COLORS.indexOf(b.color)
+    )
+    .map((t) => t.id);
+
+  const segments = clusters.map((c) => c.ids);
+  if (rest.length) segments.push(rest);
+  const order = [];
+  const breaks = new Set();
+  segments.forEach((seg, i) => {
+    order.push(...seg);
+    if (i < segments.length - 1) breaks.add(order.length - 1);
+  });
+
+  const res = { order, breaks };
+  smartCache = { key, res };
+  return res;
+}
+
 function renderRack() {
   const player = G.currentPlayer(state);
   el.rack.innerHTML = '';
@@ -707,12 +894,26 @@ function renderRack() {
     return;
   }
 
+  // В «умном» режиме готовые наборы отделяются пробелами.
+  let ids = player.rack;
+  let breaks = new Set();
+  if (sortMode === 'smart') {
+    const arranged = smartArrange(player.rack);
+    ids = arranged.order;
+    breaks = arranged.breaks;
+  }
+
   // Взятые из мешка фишки подсвечиваются как «новые для вас» (голубым).
   const drawn = new Set(player.drawn || []);
-  for (const tile of G.tilesOf(state, player.rack)) {
+  G.tilesOf(state, ids).forEach((tile, i) => {
     el.rack.appendChild(tileNode(tile, null, null, drawn));
-  }
-  fitRack(player.rack.length);
+    if (breaks.has(i)) {
+      const gap = document.createElement('i');
+      gap.className = 'rack-gap';
+      el.rack.appendChild(gap);
+    }
+  });
+  fitRack(ids.length, breaks.size);
 }
 
 /**
@@ -721,7 +922,7 @@ function renderRack() {
  * (2 в ландшафте, 3 в портрете). Ниже 26px не ужимаем — палец должен
  * попадать; в этом крайнем случае лоток прокручивается.
  */
-function fitRack(count) {
+function fitRack(count, spacers = 0) {
   el.rack.style.removeProperty('--tile-w');
   if (!count) return;
   const tile = el.rack.querySelector('.tile');
@@ -734,7 +935,9 @@ function fitRack(count) {
   const width =
     el.rack.clientWidth -
     (parseFloat(styles.paddingLeft) || 0) -
-    (parseFloat(styles.paddingRight) || 0);
+    (parseFloat(styles.paddingRight) || 0) -
+    // Пробелы умной раскладки тоже занимают место в рядах.
+    Math.ceil(spacers / rows) * 12;
 
   const fitted = (width - (perRow - 1) * gap) / perRow;
   if (fitted < tile.offsetWidth) {
@@ -768,23 +971,32 @@ function renderCombos() {
     if (seen.has(key)) continue;
     seen.add(key);
     options.push(s);
-    if (options.length >= 6) break;
+    if (options.length >= 10) break;
   }
   if (!options.length) return;
+
+  // Джокер лучше приберечь — комбинации с ним показываем последними.
+  options.sort(
+    (a, b) =>
+      Number(a.tiles.some((t) => t.joker)) - Number(b.tiles.some((t) => t.joker))
+  );
 
   el.comboBar.hidden = false;
   const label = document.createElement('span');
   label.className = 'combo-label';
   label.textContent = 'Комбинации:';
   el.comboBar.appendChild(label);
-  for (const s of options) {
+  for (const s of options.slice(0, 6)) {
     const chip = document.createElement('button');
     chip.className = 'combo-chip';
     chip.dataset.ids = s.tiles.map((t) => t.id).join(',');
     chip.textContent = s.tiles.map((t) => (t.joker ? '★' : t.num)).join('·');
-    const pts = document.createElement('b');
-    pts.textContent = ` ${s.points}`;
-    chip.appendChild(pts);
+    // Сумма очков важна только до выхода, когда идёт счёт до 30.
+    if (!player.melded) {
+      const pts = document.createElement('b');
+      pts.textContent = ` ${s.points}`;
+      chip.appendChild(pts);
+    }
     el.comboBar.appendChild(chip);
   }
 }
@@ -813,6 +1025,14 @@ function tickTimer() {
   if (Date.now() < state.deadline) return;
   state.deadline = null;
   closeConfirm(false); // время вышло — открытый вопрос уже не актуален
+  // Если разложенное на столе уже образует правильный ход — обидно терять
+  // его из-за секунд: засчитываем как есть. Фишка берётся только когда
+  // ход в текущем виде завершить нельзя.
+  if (G.validateTurn(state).ok) {
+    toast('Время вышло — разложенный ход засчитан.');
+    endTurn();
+    return;
+  }
   toast('Время хода вышло — фишка взята автоматически.', true);
   forceDraw();
 }
@@ -1056,18 +1276,61 @@ el.btnContinue.addEventListener('click', () => {
   enterGame();
 });
 
+/**
+ * Быстрая игра — неточные нажатия: промах на пару пикселей мимо фишки
+ * не должен превращаться в другое действие. Ищем ближайшую фишку рядом
+ * с точкой нажатия и считаем, что нажали на неё.
+ */
+function nearestTile(container, x, y, maxDist = 12) {
+  let best = null;
+  let bestDist = maxDist;
+  for (const t of container.querySelectorAll('.tile')) {
+    const r = t.getBoundingClientRect();
+    const dx = Math.max(r.left - x, 0, x - r.right);
+    const dy = Math.max(r.top - y, 0, y - r.bottom);
+    const d = Math.hypot(dx, dy);
+    if (d < bestDist) {
+      bestDist = d;
+      best = t;
+    }
+  }
+  return best;
+}
+
 el.board.addEventListener('click', (e) => {
   if (state?.phase !== 'play') return;
   const player = G.currentPlayer(state);
   const locked = lockedOnBoard();
 
-  if (e.target.closest('#newZone')) {
-    if (selection.size) placeSelection(-1);
-    else toast('Сначала выберите фишки — нажмите на них.');
+  // Полоска «Выбрано»: тап по мини-фишке снимает её, ✕ — всё выделение.
+  const selChip = e.target.closest('.sel-chip');
+  if (selChip) {
+    selection.delete(selChip.dataset.id);
+    render();
+    return;
+  }
+  if (e.target.closest('.sel-clear')) {
+    selection.clear();
+    render();
     return;
   }
 
-  const tile = e.target.closest('.tile');
+  const meld = e.target.closest('.meld');
+
+  // Ячейка «＋» в конце набора — положить выбранное в него.
+  if (e.target.closest('.slot-add') && meld) {
+    const index = Number(meld.dataset.index);
+    if (!player.melded && state.board[index].some((id) => locked.has(id))) {
+      toast('До первого выхода можно выкладывать только свои новые наборы.', true);
+      return;
+    }
+    if (selection.size) placeSelection(index);
+    else selectMeld(index);
+    return;
+  }
+
+  let tile = e.target.closest('.tile');
+  if (!tile && meld) tile = nearestTile(meld, e.clientX, e.clientY);
   if (tile) {
     // До первого выхода стол неприкосновенен — не даём даже выделять,
     // чтобы не собрать ход, который всё равно не примется.
@@ -1079,7 +1342,6 @@ el.board.addEventListener('click', (e) => {
     return;
   }
 
-  const meld = e.target.closest('.meld');
   if (meld) {
     const index = Number(meld.dataset.index);
     const isLockedMeld = state.board[index].some((id) => locked.has(id));
@@ -1100,19 +1362,28 @@ el.board.addEventListener('click', (e) => {
 });
 
 el.rack.addEventListener('click', (e) => {
-  const tile = e.target.closest('.tile');
+  // Промах между фишками полного лотка — выбираем ближайшую, а не «пусто».
+  const tile = e.target.closest('.tile') || nearestTile(el.rack, e.clientX, e.clientY, 14);
   if (tile) toggleTile(tile.dataset.id);
 });
 
 el.btnSort.addEventListener('click', () => {
-  sortMode = sortMode === 'run' ? 'group' : 'run';
+  const modes = ['run', 'group', 'smart'];
+  sortMode = modes[(modes.indexOf(sortMode) + 1) % modes.length];
+  // Видимый отклик нажатия: кнопка коротко «моргает».
+  el.btnSort.classList.remove('is-flash');
+  void el.btnSort.offsetWidth;
+  el.btnSort.classList.add('is-flash');
+
+  const orderOf = (ids) =>
+    sortMode === 'smart' ? smartArrange(ids).order : sortRack(ids);
   const player = G.currentPlayer(state);
-  player.rack = sortRack(player.rack);
+  player.rack = orderOf(player.rack);
   // Порядок руки — косметика. Переносим его и в снимки хода, иначе
   // «Отменить» или добор вернут старый порядок и фишки скакнут.
   const rewrite = (snap) => {
     const data = JSON.parse(snap);
-    data.racks[state.turn] = sortRack(data.racks[state.turn]);
+    data.racks[state.turn] = orderOf(data.racks[state.turn]);
     return JSON.stringify(data);
   };
   state.startSnapshot = rewrite(state.startSnapshot);
