@@ -370,11 +370,16 @@ button { font: inherit; color: inherit; }
   }
 }
 
+/* Подложка набора обтягивает сам набор: за ячейкой «＋» не остаётся
+   пустого куска фона, который выглядит обрезком, а не местом для фишки. */
 .meld {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   gap: var(--gap);
   padding: 7px 8px;
   border-radius: 12px;
@@ -392,8 +397,11 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 0 0 1px var(--pc, var(--gold)) inset;
 }
 
+/* Подпись-причина занимает всю ширину набора, но не растягивает подложку:
+   ширину задаёт сам набор, а не длина текста. */
 .meld-note {
-  width: 100%;
+  width: 0;
+  min-width: 100%;
   font-size: 11.5px;
   color: var(--danger);
   padding-left: 2px;
@@ -419,25 +427,10 @@ button { font: inherit; color: inherit; }
 .slot-add.is-hot { border-color: var(--pc, var(--gold)); color: var(--pc, var(--gold)); }
 .slot-add:active { background: var(--surface); }
 
-/* Сводка выделения: липнет к верху стола, тап по мини-фишке снимает её. */
-.sel-bar {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  width: fit-content;
-  max-width: 100%;
-  padding: 5px 8px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(9, 26, 21, 0.92);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-.sel-cap { font-size: 11.5px; color: var(--ink-dim); }
+/* Сводка выделения (внутри панели над лотком): тап по мини-фишке снимает её. */
+.sel-cap { flex: none; font-size: 11.5px; color: var(--ink-dim); }
 .sel-chip {
+  flex: none;
   border: 0;
   padding: 0;
   width: calc(var(--tile-w) * 0.62);
@@ -456,6 +449,7 @@ button { font: inherit; color: inherit; }
 .sel-chip.c-o { color: var(--c-o); }
 .sel-chip.c-k { color: var(--c-k); }
 .sel-clear {
+  flex: none;
   border: 0;
   width: 22px;
   height: 22px;
@@ -560,29 +554,33 @@ button { font: inherit; color: inherit; }
   padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l));
 }
 
-/* Комбинации с выбранными фишками: полоска парит над лотком,
-   не двигая остальную раскладку. */
-.combo-bar {
-  position: absolute;
-  left: 8px;
-  max-width: calc(100% - 16px);
-  width: fit-content;
-  bottom: 100%;
-  margin-bottom: 5px;
+/* Панель выделения: что выбрано и какие комбинации из этого складываются.
+   Живёт в панели действий на своём постоянном месте — пустая остаётся
+   на экране с подсказкой, поэтому выбор фишки ничего не двигает.
+   Высота фиксирована, длинное содержимое прокручивается внутри. */
+.sel-panel {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 10px;
+  height: calc(var(--tile-h) * 0.62 + 14px);
+  padding: 0 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--line);
   overflow-x: auto;
   scrollbar-width: none;
-  padding: 5px 8px;
-  border-radius: 12px;
-  background: rgba(9, 26, 21, 0.92);
-  border: 1px solid var(--line);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  z-index: 5;
 }
-.combo-bar::-webkit-scrollbar { display: none; }
-.combo-bar[hidden] { display: none; }
+.sel-panel::-webkit-scrollbar { display: none; }
+.sel-panel.is-idle { border-style: dashed; justify-content: center; }
+.sel-hint { margin: 0; font-size: 11.5px; line-height: 1.35; color: var(--ink-dim); }
+.sel-row,
+.combo-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
 .combo-label { flex: none; font-size: 11.5px; color: var(--ink-dim); }
 .combo-chip {
   flex: none;
@@ -632,6 +630,14 @@ button { font: inherit; color: inherit; }
 
 /* Подписи групп — только в боковой панели (ландшафт). */
 .tools-cap { display: none; }
+
+/* Внизу экрана (широкий монитор) панель выделения — строка сразу под
+   лотком, шириной с лоток: и пустая, и полная занимает ровно столько же. */
+.sel-panel {
+  order: -1;
+  align-self: center;
+  width: min(560px, 100%);
+}
 
 .rack-tools {
   display: flex;
@@ -769,32 +775,79 @@ body.land .hud { grid-area: hud; padding-top: 6px; padding-right: 12px; }
 body.land .board { grid-area: board; padding-right: 10px; }
 body.land .rack-area { grid-area: rack; padding-bottom: 4px; padding-right: 8px; }
 
+/* Боковая панель делит высоту на три части: лоток сверху, ход снизу,
+   выделение — в середине. Чтобы середине досталось на что жить,
+   кнопки и промежутки здесь чуть плотнее, чем в нижней раскладке. */
 body.land .actions {
   grid-area: side;
   border-top: 0;
   border-left: 1px solid var(--line);
   padding: 8px max(8px, var(--safe-r)) 8px 8px;
-  gap: 5px;
+  gap: 4px;
 }
 /* В боковой панели группы получают подписи и раскладываются в столбик. */
 body.land .tools-cap {
   display: block;
   font-size: 10.5px;
+  line-height: 1.1;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--ink-dim);
-  padding: 2px 6px 0;
+  padding: 1px 6px 0;
 }
 body.land .tools-cap-turn { margin-top: auto; }
+/* Выделение занимает свободную середину панели: «Лоток» прижат к верху,
+   «Ход» — к низу, панель растёт и сжимается только внутрь себя, и ни одна
+   кнопка от выбора фишки не смещается. Не влезло — прокручивается. */
+body.land .sel-panel {
+  order: 0;
+  align-self: stretch;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  width: auto;
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 3px;
+  padding: 4px 6px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.land .sel-panel.is-idle { justify-content: center; }
+body.land .sel-row,
+body.land .combo-row { flex-wrap: wrap; gap: 4px; }
+/* Раздел уже подписан «ВЫБРАНО» — второй раз в строке не надо;
+   комбинации отделяются волоском, а не длинным словом: в 176 px
+   каждая буква отнимает место у самих чипов. */
+body.land .sel-cap,
+body.land .combo-label { display: none; }
+body.land .combo-row {
+  margin-top: 1px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+}
+body.land .sel-chip {
+  width: calc(var(--tile-w) * 0.46);
+  height: calc(var(--tile-h) * 0.46);
+  font-size: calc(var(--tile-w) * 0.28);
+}
+body.land .sel-clear { width: 18px; height: 18px; font-size: 10px; }
+body.land .combo-chip { padding: 2px 7px; font-size: 11.5px; }
 body.land .rack-tools {
   flex-direction: column;
   width: 100%;
   border-radius: 14px;
-  padding: 4px;
+  padding: 3px;
 }
-body.land .tool-btn { justify-content: flex-start; width: 100%; border-radius: 10px; }
-body.land .turn-actions { flex-direction: column; }
-body.land .act { width: 100%; flex: none; }
+body.land .tool-btn {
+  justify-content: flex-start;
+  width: 100%;
+  border-radius: 10px;
+  padding: 6px 13px;
+}
+body.land .turn-actions { flex-direction: column; gap: 6px; }
+body.land .act { width: 100%; flex: none; min-height: 44px; }
 /* «Выставить» — сверху, ближе к столу и лотку. */
 body.land .act-place { order: -1; }
 
