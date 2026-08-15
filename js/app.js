@@ -919,29 +919,28 @@ function fitRack(count, spacers = 0) {
 }
 
 /**
- * Панель выделения над лотком: «Выбрано: …» с мини-копиями выбранных фишек
- * и, если выбранное с руки во что-то складывается, строка комбинаций.
+ * Панель выделения в боковой панели: мини-копии выбранных фишек и, если
+ * выбранное с руки во что-то складывается, строка комбинаций.
  *
- * Панель парит над лотком (position: absolute) и растёт вверх: появление
- * и исчезновение не сдвигают ни стол, ни лоток, ни кнопки — интерфейс
- * под пальцем стоит на месте.
+ * У панели своё постоянное место между «Лотком» и «Ходом»: она занимает
+ * свободную середину и никогда не появляется поверх стола. Пустая панель
+ * остаётся на месте с подсказкой — от выбора фишки ничего не сдвигается.
  */
 function renderSelPanel() {
   el.selPanel.innerHTML = '';
-  el.selPanel.hidden = true;
-  if (!state || state.phase !== 'play' || !selection.size) {
-    el.board.style.removeProperty('--sel-pad');
+  const idle = !state || state.phase !== 'play' || !selection.size;
+  el.selPanel.classList.toggle('is-idle', idle);
+  if (idle) {
+    const hint = document.createElement('p');
+    hint.className = 'sel-hint';
+    hint.textContent = 'Нажмите на фишки — выбранное появится здесь.';
+    el.selPanel.appendChild(hint);
     return;
   }
 
-  el.selPanel.hidden = false;
   el.selPanel.appendChild(selRow());
   const combos = comboOptions();
   if (combos.length) el.selPanel.appendChild(comboRow(combos));
-
-  // Панель закрывает низ стола — на столько же удлиняем его прокрутку,
-  // чтобы спрятанный набор можно было домотать.
-  el.board.style.setProperty('--sel-pad', `${el.selPanel.offsetHeight + 6}px`);
 }
 
 /** Строка «Выбрано: …»: тап по мини-фишке снимает её, ✕ — всё выделение. */
