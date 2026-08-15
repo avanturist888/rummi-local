@@ -34,7 +34,7 @@ const el = {
   hudPool: $('hudPool'),
   board: $('board'),
   rack: $('rack'),
-  comboBar: $('comboBar'),
+  selPanel: $('selPanel'),
   hudTimer: $('hudTimer'),
   timerPicker: $('timerPicker'),
   btnSort: $('btnSort'),
@@ -421,7 +421,7 @@ function render() {
   const rackScroll = el.rack.scrollTop;
   renderBoard(locked, outlook);
   renderRack();
-  renderCombos();
+  renderSelPanel();
   el.board.scrollTop = boardScroll;
   el.rack.scrollTop = rackScroll;
 
@@ -611,10 +611,6 @@ function renderBoard(locked, outlook) {
   const lockedIds = lockedOnBoard();
   el.board.innerHTML = '';
 
-  // Сводка выделения липнет к верху стола: что выбрано, видно всегда,
-  // без прокрутки в поисках нажатых фишек.
-  if (state.phase === 'play' && selection.size) el.board.appendChild(selBar());
-
   if (locked) {
     const note = document.createElement('div');
     note.className = 'lock-note';
@@ -714,29 +710,6 @@ function renderBoard(locked, outlook) {
     zoneEl('Ряды', runs, fresh, news, canTake)
   );
   el.board.appendChild(zones);
-}
-
-/** Полоска «Выбрано: …» — мини-копии выбранных фишек; тап снимает выбор. */
-function selBar() {
-  const bar = document.createElement('div');
-  bar.className = 'sel-bar';
-  const cap = document.createElement('span');
-  cap.className = 'sel-cap';
-  cap.textContent = 'Выбрано:';
-  bar.appendChild(cap);
-  for (const tile of G.tilesOf(state, [...selection])) {
-    const chip = document.createElement('button');
-    chip.className = `sel-chip c-${tile.color}`;
-    chip.dataset.id = tile.id;
-    chip.textContent = tile.joker ? '★' : String(tile.num);
-    bar.appendChild(chip);
-  }
-  const clear = document.createElement('button');
-  clear.className = 'sel-clear';
-  clear.setAttribute('aria-label', 'Снять всё выделение');
-  clear.textContent = '✕';
-  bar.appendChild(clear);
-  return bar;
 }
 
 /**
@@ -946,19 +919,64 @@ function fitRack(count, spacers = 0) {
 }
 
 /**
- * Умная группировка: когда выбраны фишки с руки, над лотком показываются
- * все наборы, в которые они складываются. Одна и та же фишка часто годится
- * в несколько комбинаций — тап по чипу выбирает нужную целиком.
+ * Панель выделения над лотком: «Выбрано: …» с мини-копиями выбранных фишек
+ * и, если выбранное с руки во что-то складывается, строка комбинаций.
+ *
+ * Панель парит над лотком (position: absolute) и растёт вверх: появление
+ * и исчезновение не сдвигают ни стол, ни лоток, ни кнопки — интерфейс
+ * под пальцем стоит на месте.
  */
-function renderCombos() {
-  el.comboBar.innerHTML = '';
-  el.comboBar.hidden = true;
-  if (!state || state.phase !== 'play' || !selection.size) return;
+function renderSelPanel() {
+  el.selPanel.innerHTML = '';
+  el.selPanel.hidden = true;
+  if (!state || state.phase !== 'play' || !selection.size) {
+    el.board.style.removeProperty('--sel-pad');
+    return;
+  }
 
+  el.selPanel.hidden = false;
+  el.selPanel.appendChild(selRow());
+  const combos = comboOptions();
+  if (combos.length) el.selPanel.appendChild(comboRow(combos));
+
+  // Панель закрывает низ стола — на столько же удлиняем его прокрутку,
+  // чтобы спрятанный набор можно было домотать.
+  el.board.style.setProperty('--sel-pad', `${el.selPanel.offsetHeight + 6}px`);
+}
+
+/** Строка «Выбрано: …»: тап по мини-фишке снимает её, ✕ — всё выделение. */
+function selRow() {
+  const row = document.createElement('div');
+  row.className = 'sel-row';
+  const cap = document.createElement('span');
+  cap.className = 'sel-cap';
+  cap.textContent = 'Выбрано:';
+  row.appendChild(cap);
+  for (const tile of G.tilesOf(state, [...selection])) {
+    const chip = document.createElement('button');
+    chip.className = `sel-chip c-${tile.color}`;
+    chip.dataset.id = tile.id;
+    chip.textContent = tile.joker ? '★' : String(tile.num);
+    row.appendChild(chip);
+  }
+  const clear = document.createElement('button');
+  clear.className = 'sel-clear';
+  clear.setAttribute('aria-label', 'Снять всё выделение');
+  clear.textContent = '✕';
+  row.appendChild(clear);
+  return row;
+}
+
+/**
+ * Умная группировка: наборы с руки, в которые складывается выбранное.
+ * Одна и та же фишка часто годится в несколько комбинаций — тап по чипу
+ * выбирает нужную целиком.
+ */
+function comboOptions() {
   const player = G.currentPlayer(state);
   const rackSet = new Set(player.rack);
   const selected = [...selection];
-  if (!selected.every((id) => rackSet.has(id))) return;
+  if (!selected.every((id) => rackSet.has(id))) return [];
 
   const all = findSets(G.tilesOf(state, player.rack)).filter((s) =>
     selected.every((id) => s.tiles.some((t) => t.id === id))
@@ -973,20 +991,24 @@ function renderCombos() {
     options.push(s);
     if (options.length >= 10) break;
   }
-  if (!options.length) return;
 
   // Джокер лучше приберечь — комбинации с ним показываем последними.
   options.sort(
     (a, b) =>
       Number(a.tiles.some((t) => t.joker)) - Number(b.tiles.some((t) => t.joker))
   );
+  return options.slice(0, 6);
+}
 
-  el.comboBar.hidden = false;
+function comboRow(options) {
+  const player = G.currentPlayer(state);
+  const row = document.createElement('div');
+  row.className = 'combo-row';
   const label = document.createElement('span');
   label.className = 'combo-label';
   label.textContent = 'Комбинации:';
-  el.comboBar.appendChild(label);
-  for (const s of options.slice(0, 6)) {
+  row.appendChild(label);
+  for (const s of options) {
     const chip = document.createElement('button');
     chip.className = 'combo-chip';
     chip.dataset.ids = s.tiles.map((t) => t.id).join(',');
@@ -997,8 +1019,9 @@ function renderCombos() {
       pts.textContent = ` ${s.points}`;
       chip.appendChild(pts);
     }
-    el.comboBar.appendChild(chip);
+    row.appendChild(chip);
   }
+  return row;
 }
 
 /* ---------- таймер хода ---------- */
@@ -1302,19 +1325,6 @@ el.board.addEventListener('click', (e) => {
   const player = G.currentPlayer(state);
   const locked = lockedOnBoard();
 
-  // Полоска «Выбрано»: тап по мини-фишке снимает её, ✕ — всё выделение.
-  const selChip = e.target.closest('.sel-chip');
-  if (selChip) {
-    selection.delete(selChip.dataset.id);
-    render();
-    return;
-  }
-  if (e.target.closest('.sel-clear')) {
-    selection.clear();
-    render();
-    return;
-  }
-
   const meld = e.target.closest('.meld');
 
   // Ячейка «＋» в конце набора — положить выбранное в него.
@@ -1405,13 +1415,26 @@ el.btnPlace.addEventListener('click', smartPlace);
 el.btnDraw.addEventListener('click', drawTile);
 el.btnEnd.addEventListener('click', endTurn);
 
-// Тап по комбинации над лотком — выбрать её фишки целиком.
-el.comboBar.addEventListener('click', (e) => {
-  const chip = e.target.closest('.combo-chip');
-  if (!chip) return;
-  selection = new Set(chip.dataset.ids.split(','));
-  hintIds.clear();
-  render();
+// Панель выделения над лотком: тап по комбинации выбирает её фишки целиком,
+// тап по мини-фишке снимает её, ✕ — снимает всё выделение.
+el.selPanel.addEventListener('click', (e) => {
+  const combo = e.target.closest('.combo-chip');
+  if (combo) {
+    selection = new Set(combo.dataset.ids.split(','));
+    hintIds.clear();
+    render();
+    return;
+  }
+  const chip = e.target.closest('.sel-chip');
+  if (chip) {
+    selection.delete(chip.dataset.id);
+    render();
+    return;
+  }
+  if (e.target.closest('.sel-clear')) {
+    selection.clear();
+    render();
+  }
 });
 
 // Кружок цвета на экране настройки — перебор свободных цветов.

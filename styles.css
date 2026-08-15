@@ -298,7 +298,11 @@ button { font: inherit; color: inherit; }
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 10px max(10px, var(--safe-r)) 14px max(10px, var(--safe-l));
+  /* Снизу столу добавляется высота панели выделения: то, что она собой
+     закрыла, всегда можно домотать. Нижний отступ ничего не двигает —
+     содержимое стола прижато к верху. */
+  padding: 10px max(10px, var(--safe-r)) calc(14px + var(--sel-pad, 0px))
+    max(10px, var(--safe-l));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -370,11 +374,16 @@ button { font: inherit; color: inherit; }
   }
 }
 
+/* Подложка набора обтягивает сам набор: за ячейкой «＋» не остаётся
+   пустого куска фона, который выглядит обрезком, а не местом для фишки. */
 .meld {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   gap: var(--gap);
   padding: 7px 8px;
   border-radius: 12px;
@@ -392,8 +401,11 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 0 0 1px var(--pc, var(--gold)) inset;
 }
 
+/* Подпись-причина занимает всю ширину набора, но не растягивает подложку:
+   ширину задаёт сам набор, а не длина текста. */
 .meld-note {
-  width: 100%;
+  width: 0;
+  min-width: 100%;
   font-size: 11.5px;
   color: var(--danger);
   padding-left: 2px;
@@ -419,25 +431,10 @@ button { font: inherit; color: inherit; }
 .slot-add.is-hot { border-color: var(--pc, var(--gold)); color: var(--pc, var(--gold)); }
 .slot-add:active { background: var(--surface); }
 
-/* Сводка выделения: липнет к верху стола, тап по мини-фишке снимает её. */
-.sel-bar {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  width: fit-content;
-  max-width: 100%;
-  padding: 5px 8px;
-  border-radius: 12px;
-  border: 1px solid var(--line);
-  background: rgba(9, 26, 21, 0.92);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-.sel-cap { font-size: 11.5px; color: var(--ink-dim); }
+/* Сводка выделения (внутри панели над лотком): тап по мини-фишке снимает её. */
+.sel-cap { flex: none; font-size: 11.5px; color: var(--ink-dim); }
 .sel-chip {
+  flex: none;
   border: 0;
   padding: 0;
   width: calc(var(--tile-w) * 0.62);
@@ -456,6 +453,7 @@ button { font: inherit; color: inherit; }
 .sel-chip.c-o { color: var(--c-o); }
 .sel-chip.c-k { color: var(--c-k); }
 .sel-clear {
+  flex: none;
   border: 0;
   width: 22px;
   height: 22px;
@@ -560,9 +558,10 @@ button { font: inherit; color: inherit; }
   padding: 4px max(8px, var(--safe-r)) 4px max(8px, var(--safe-l));
 }
 
-/* Комбинации с выбранными фишками: полоска парит над лотком,
-   не двигая остальную раскладку. */
-.combo-bar {
+/* Панель выделения: «Выбрано: …» и комбинации с этими фишками.
+   Парит над лотком и растёт вверх — появление ничего не двигает,
+   стол и кнопки под пальцем остаются на месте. */
+.sel-panel {
   position: absolute;
   left: 8px;
   max-width: calc(100% - 16px);
@@ -570,10 +569,8 @@ button { font: inherit; color: inherit; }
   bottom: 100%;
   margin-bottom: 5px;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-direction: column;
+  gap: 4px;
   padding: 5px 8px;
   border-radius: 12px;
   background: rgba(9, 26, 21, 0.92);
@@ -581,8 +578,14 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   z-index: 5;
 }
-.combo-bar::-webkit-scrollbar { display: none; }
-.combo-bar[hidden] { display: none; }
+.sel-panel[hidden] { display: none; }
+.sel-row,
+.combo-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
 .combo-label { flex: none; font-size: 11.5px; color: var(--ink-dim); }
 .combo-chip {
   flex: none;
