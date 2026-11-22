@@ -61,14 +61,17 @@ button { font: inherit; color: inherit; }
 
 #screenSetup {
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   align-items: center;
-  justify-content: center;
-  padding: calc(20px + var(--safe-t)) 18px calc(20px + var(--safe-b));
+  justify-content: flex-start;
+  padding: calc(20px + var(--safe-t)) max(18px, var(--safe-r)) calc(20px + var(--safe-b)) max(18px, var(--safe-l));
 }
 
 .setup-card {
+  flex-shrink: 0;
   width: 100%;
   max-width: 420px;
+  margin: auto 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -648,8 +651,8 @@ button { font: inherit; color: inherit; }
   scrollbar-width: none;
 }
 .sel-panel::-webkit-scrollbar { display: none; }
-.sel-panel.is-idle { border-style: dashed; justify-content: center; }
-.sel-hint { margin: 0; font-size: 11.5px; line-height: 1.35; color: var(--ink-dim); }
+.sel-panel.is-idle { border-style: dashed; }
+.sel-hint { margin: auto; font-size: 11.5px; line-height: 1.35; color: var(--ink-dim); text-align: center; }
 .sel-row,
 .combo-row {
   flex: none;
@@ -903,7 +906,7 @@ body.land .sel-panel {
   overflow-x: hidden;
   overflow-y: auto;
 }
-body.land .sel-panel.is-idle { justify-content: center; }
+body.land .sel-panel.is-idle { justify-content: flex-start; }
 body.land .sel-row,
 body.land .combo-row { flex-wrap: wrap; gap: 5px; }
 /* Раздел уже подписан «ВЫБРАНО» — второй раз в строке не надо;
@@ -1000,11 +1003,13 @@ body.in-game.is-rot #stage {
   max-width: 420px;
   max-height: 100%;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 11px;
   text-align: center;
 }
+.overlay-card > * { flex-shrink: 0; }
 .overlay-scroll { text-align: left; }
 .overlay-kicker {
   margin: 0;
