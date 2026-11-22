@@ -7,8 +7,11 @@ import * as G from './game.js';
 import { COLORS, MIN_FIRST_MELD, findSets } from './rules.js';
 import { bestFirstMeld } from './solver.js';
 import { findHint } from './hint.js';
+import { createBoardLayout } from './boardLayout.js';
+import * as sound from './sound.js';
 
 const SAVE_KEY = 'rummikub:save:v5';
+const LAYOUT_KEY = 'rummikub:layout:v1';
 const NAMES_KEY = 'rummikub:names';
 const AUTOSKIP_KEY = 'rummikub:autoskip';
 const SERIES_KEY = 'rummikub:series';
@@ -22,6 +25,7 @@ const PLAYER_COLORS = ['#ffd166', '#7ee0a3', '#ff9d76', '#c9a7ff', '#6fc3ff', '#
 const $ = (id) => document.getElementById(id);
 
 const el = {
+  stage: $('stage'),
   screenSetup: $('screenSetup'),
   screenGame: $('screenGame'),
   countPicker: $('countPicker'),
@@ -34,6 +38,7 @@ const el = {
   hudPool: $('hudPool'),
   board: $('board'),
   rack: $('rack'),
+  rackArea: document.querySelector('.rack-area'),
   selPanel: $('selPanel'),
   hudTimer: $('hudTimer'),
   timerPicker: $('timerPicker'),
@@ -49,6 +54,7 @@ const el = {
   meldBar: $('meldBar'),
   meldFill: $('meldFill'),
   btnFull: $('btnFull'),
+  btnSoundMenu: $('btnSoundMenu'),
   overlayConfirm: $('overlayConfirm'),
   confirmText: $('confirmText'),
   btnConfirmYes: $('btnConfirmYes'),
@@ -85,6 +91,10 @@ let confirmResolve = null;
 let smartCache = null; // «умная» раскладка лотка: пересчёт только при смене руки
 let dimIds = new Set(); // фишки лотка, которые не женятся с выбранными
 let mateIds = new Set(); // фишки стола, которые подходят к выбранным
+let lastRenderedCombos = []; // текущие показанные комбинации в selPanel
+let pinnedCombos = null; // фиксированный список комбинаций после тапа по чипу
+let activeFlyers = []; // временные клоны перелёта фишек между рукой и столом
+const boardLayout = createBoardLayout();
 
 /* ---------- вспомогательное ---------- */
 
@@ -94,17 +104,51 @@ function toast(text, bad = false) {
   el.toast.classList.toggle('is-bad', bad);
   el.toast.hidden = false;
   toastTimer = setTimeout(() => { el.toast.hidden = true; }, bad ? 3500 : 2400);
-  if (bad) buzz(30);
+  if (bad) {
+    buzz(30);
+    sound.playError();
+  }
+}
+
+function updateSoundButton() {
+  if (!el.btnSoundMenu) return;
+  el.btnSoundMenu.textContent = `Звук: ${sound.isSoundEnabled() ? 'вкл' : 'выкл'}`;
 }
 
 function buzz(ms) {
   if (navigator.vibrate) navigator.vibrate(ms);
 }
 
+function layoutStateKey() {
+  if (!state) return '';
+  const boardSig = state.board.map((m) => m.join(',')).join('|');
+  return `${state.round}:${state.turn}:${state.phase}:${state.history.length}:${boardSig}`;
+}
+
 function save() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+    localStorage.setItem(
+      LAYOUT_KEY,
+      JSON.stringify({ key: layoutStateKey(), data: boardLayout.serialize() })
+    );
   } catch { /* приватный режим — играем без сохранения */ }
+}
+
+function restoreSavedLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (saved.key !== layoutStateKey()) return false;
+    return boardLayout.restore(saved.data);
+  } catch {
+    return false;
+  }
+}
+
+function clearSavedLayout() {
+  try { localStorage.removeItem(LAYOUT_KEY); } catch { /* пусть */ }
 }
 
 function loadSave() {
@@ -325,14 +369,16 @@ function cyclePlayerColor(i) {
 }
 
 function showSetup() {
+  clearTileFlyers();
+  closeGameModals();
   state = null;
   selection.clear();
+  pinnedCombos = null;
   document.body.classList.remove('in-game');
   el.screenGame.hidden = true;
   el.screenSetup.hidden = false;
   el.overlayPass.hidden = true;
   el.overlayEnd.hidden = true;
-  el.overlayMenu.hidden = true;
   el.btnContinue.hidden = !loadSave();
   loadAutoSkipPref();
   loadTimerPref();
@@ -375,7 +421,9 @@ function runAutoSkip() {
 }
 
 function enterGame() {
+  clearTileFlyers();
   selection.clear();
+  pinnedCombos = null;
   hintIds.clear();
   meldCache = null;
   document.body.classList.add('in-game');
@@ -383,16 +431,251 @@ function enterGame() {
   el.screenGame.hidden = false;
   el.overlayEnd.hidden = true;
   runAutoSkip();
+  if (state.phase === 'play' && state.history.length > 0) {
+    if (!restoreSavedLayout()) boardLayout.rebuildFromState(state);
+  } else {
+    boardLayout.reset(state.board, state.tiles);
+  }
   // Партию могли открыть заново посреди хода — время отсчитываем заново.
   if (state.phase === 'play') armTurnTimer();
   save();
   render();
 }
 
+/* ---------- FLIP-анимация фишек ---------- */
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' &&
+  window.matchMedia &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function clearTileFlyers() {
+  for (const item of activeFlyers) {
+    clearTimeout(item.timer);
+    item.ghost.remove();
+    if (item.node) item.node.style.visibility = '';
+  }
+  activeFlyers = [];
+}
+
+function closeGameModals() {
+  el.overlayMenu.hidden = true;
+  el.overlayRules.hidden = true;
+  closeConfirm(false);
+}
+
+/** Переводит экранный DOMRect в локальные координаты #stage (для position: fixed внутри #stage). */
+function toStageBox(rect, stageRect, rotated) {
+  if (rotated) {
+    return {
+      left: rect.top - stageRect.top,
+      top: stageRect.right - rect.right,
+      width: rect.height,
+      height: rect.width,
+    };
+  }
+  return {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function captureTileRects() {
+  const rects = new Map();
+  if (prefersReducedMotion()) return rects;
+  for (const node of el.screenGame.querySelectorAll('.tile')) {
+    const r = node.getBoundingClientRect();
+    if (!r.width && !r.height) continue;
+    rects.set(node.dataset.id, {
+      rect: {
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        width: r.width,
+        height: r.height,
+      },
+      cx: r.left + r.width / 2,
+      cy: r.top + r.height / 2,
+      inBoard: !!node.closest('#board'),
+    });
+  }
+  return rects;
+}
+
+function animateTileFlip(before) {
+  if (!before || !before.size || prefersReducedMotion()) return;
+  const rotated = document.body.classList.contains('is-rot');
+  const stageRect = rotated ? el.stage.getBoundingClientRect() : null;
+  const moving = [];
+  const flying = [];
+
+  for (const node of el.screenGame.querySelectorAll('.tile')) {
+    const prev = before.get(node.dataset.id);
+    const inBoard = !!node.closest('#board');
+    if (!prev) {
+      if (inBoard) {
+        node.classList.add('is-land');
+        node.addEventListener('animationend', () => node.classList.remove('is-land'), { once: true });
+      }
+      continue;
+    }
+    const r = node.getBoundingClientRect();
+    if (!r.width && !r.height) continue;
+    const dxScreen = prev.cx - (r.left + r.width / 2);
+    const dyScreen = prev.cy - (r.top + r.height / 2);
+    // В режиме принудительного поворота (#stage повёрнут на rotate(90deg))
+    // переводим экранные дельты в локальные координаты сцены.
+    const dx = rotated ? dyScreen : dxScreen;
+    const dy = rotated ? -dxScreen : dyScreen;
+    if (Math.hypot(dx, dy) < 2) continue;
+
+    // Перелёт между рукой и столом идёт через общий слой #stage, чтобы не обрезаться скроллом.
+    if (prev.inBoard !== inBoard && el.stage) {
+      const fromBox = toStageBox(prev.rect, stageRect, rotated);
+      const toBox = toStageBox(r, stageRect, rotated);
+      const ghost = node.cloneNode(true);
+      ghost.classList.remove('is-sel', 'is-land', 'is-hint', 'is-dim', 'is-mate');
+      ghost.classList.add('tile-fly');
+      ghost.style.left = `${toBox.left.toFixed(1)}px`;
+      ghost.style.top = `${toBox.top.toFixed(1)}px`;
+      ghost.style.width = `${toBox.width.toFixed(1)}px`;
+      ghost.style.height = `${toBox.height.toFixed(1)}px`;
+      const sx = toBox.width ? fromBox.width / toBox.width : 1;
+      const sy = toBox.height ? fromBox.height / toBox.height : 1;
+      ghost.style.transition = 'none';
+      ghost.style.transform = `translate3d(${(fromBox.left - toBox.left).toFixed(1)}px, ${(fromBox.top - toBox.top).toFixed(1)}px, 0) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`;
+      node.style.visibility = 'hidden';
+      el.stage.appendChild(ghost);
+      flying.push({ node, ghost, landed: inBoard });
+      continue;
+    }
+
+    node.style.transition = 'none';
+    node.style.transform = `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`;
+    node.style.zIndex = '6';
+    moving.push({ node, landed: false });
+  }
+  if (!moving.length && !flying.length) return;
+
+  // Фиксируем стартовые координаты перед запуском перехода.
+  el.screenGame.getBoundingClientRect();
+
+  for (const { node } of moving) {
+    node.style.transition = 'transform 165ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+    node.style.transform = '';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      node.style.transition = '';
+      node.style.zIndex = '';
+    };
+    node.addEventListener('transitionend', finish, { once: true });
+    setTimeout(finish, 210);
+  }
+
+  for (const item of flying) {
+    const { node, ghost, landed } = item;
+    ghost.style.transition = 'transform 170ms cubic-bezier(0.2, 0.8, 0.2, 1)';
+    ghost.style.transform = 'none';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(item.timer);
+      ghost.remove();
+      activeFlyers = activeFlyers.filter((f) => f !== item);
+      node.style.visibility = '';
+      if (landed && node.isConnected) {
+        node.classList.add('is-land');
+        node.addEventListener('animationend', () => node.classList.remove('is-land'), { once: true });
+      }
+    };
+    item.timer = setTimeout(finish, 220);
+    activeFlyers.push(item);
+    ghost.addEventListener('transitionend', finish, { once: true });
+  }
+}
+
 /* ---------- отрисовка ---------- */
 
-function render() {
+/** Индексы наборов на столе, куда выбранные фишки ложатся целиком. */
+function computeCanTake(player, lockedIds) {
+  const canTake = new Set();
+  if (!selection.size) return canTake;
+  const selIds = [...selection];
+  for (let index = 0; index < state.board.length; index++) {
+    const meld = state.board[index];
+    if (meld.some((id) => selection.has(id))) continue;
+    if (!player.melded && meld.some((id) => lockedIds.has(id))) continue;
+    if (G.meldInfo(state, [...meld, ...selIds]).valid) canTake.add(index);
+  }
+  return canTake;
+}
+
+/** Обновляет кнопки, зависящие от текущего выделения («На руку» и «Выставить»). */
+function updateSelectionButtons(busy, player) {
+  const selIds = [...selection];
+  const fresh = freshOnBoard();
+  const locked = lockedOnBoard();
+  const hasLocked = selIds.some((id) => locked.has(id));
+  const hasReturnable = !hasLocked && selIds.some((id) => fresh.has(id));
+  el.btnToRack.disabled = busy || !hasReturnable;
+  el.btnPlace.disabled = busy || selIds.length === 0;
+
+  // «Выставить» зеленеет, когда выбранное реально ляжет правильным ходом:
+  // само по себе валидный набор или целиком подходит к набору на столе.
+  const placeReady =
+    !busy &&
+    selIds.length > 0 &&
+    (G.meldInfo(state, selIds).valid ||
+      (player.melded &&
+        state.board.some(
+          (m) => !m.some((id) => selection.has(id)) && G.meldInfo(state, [...m, ...selIds]).valid
+        )));
+  el.btnPlace.classList.toggle('is-ready', placeReady);
+}
+
+/**
+ * Лёгкое in-place обновление выделения без пересоздания DOM стола и лотка:
+ * даёт мгновенный отклик, плавные CSS-переходы и живой :active на фишках.
+ */
+function updateSelectionUI() {
+  if (!state || state.phase !== 'play') {
+    render();
+    return;
+  }
+  const player = G.currentPlayer(state);
+  const lockedIds = lockedOnBoard();
+  computeMarks(false, player);
+  const canTake = computeCanTake(player, lockedIds);
+
+  for (const node of el.screenGame.querySelectorAll('.tile')) {
+    const id = node.dataset.id;
+    node.classList.toggle('is-sel', selection.has(id));
+    node.classList.toggle('is-dim', dimIds.has(id));
+    node.classList.toggle('is-mate', mateIds.has(id));
+    node.classList.toggle('is-hint', hintIds.has(id));
+  }
+
+  for (const row of el.board.querySelectorAll('.meld')) {
+    const index = Number(row.dataset.index);
+    const hot = canTake.has(index);
+    row.classList.toggle('can-take', hot);
+    const slot = row.querySelector('.slot-add');
+    if (slot) slot.classList.toggle('is-hot', hot);
+  }
+
+  renderSelPanel();
+  updateSelectionButtons(false, player);
+}
+
+function render({ animate = false } = {}) {
   if (!state) return;
+  clearTileFlyers();
 
   if (state.phase === 'over') {
     renderEnd();
@@ -401,6 +684,10 @@ function render() {
 
   const player = G.currentPlayer(state);
   const busy = state.phase !== 'play';
+  if (busy) {
+    pinnedCombos = null;
+    closeGameModals();
+  }
   const outlook = busy ? null : firstMeldOutlook();
   const locked = !!outlook && !outlook.reachedTarget && !outlook.capped;
   // Ход реально можно завершить? Только тогда кнопка хода подсвечена.
@@ -415,6 +702,8 @@ function render() {
 
   computeMarks(busy, player);
 
+  const beforeRects = animate && !busy ? captureTileRects() : null;
+
   // Полная перерисовка не должна сбрасывать прокрутку: иначе фишки
   // сдвигаются под пальцем и следующий тап попадает не туда.
   const boardScroll = el.board.scrollTop;
@@ -424,27 +713,16 @@ function render() {
   renderSelPanel();
   el.board.scrollTop = boardScroll;
   el.rack.scrollTop = rackScroll;
+  updateRackScrollHint();
+
+  if (beforeRects) animateTileFlip(beforeRects);
 
   el.btnUndo.disabled = busy || state.history.length === 0;
-  el.btnToRack.disabled = busy || selection.size === 0;
-  el.btnPlace.disabled = busy || selection.size === 0;
+  updateSelectionButtons(busy, player);
   el.btnDraw.disabled = busy;
   el.btnEnd.disabled = busy || locked;
   el.btnSort.disabled = busy;
   el.sortLabel.textContent = { run: 'цвет', group: 'число', smart: 'умно' }[sortMode];
-
-  // «Выставить» зеленеет, когда выбранное реально ляжет правильным ходом:
-  // само по себе валидный набор или целиком подходит к набору на столе.
-  const selIds = [...selection];
-  const placeReady =
-    !busy &&
-    selIds.length > 0 &&
-    (G.meldInfo(state, selIds).valid ||
-      (player.melded &&
-        state.board.some(
-          (m) => !m.some((id) => selection.has(id)) && G.meldInfo(state, [...m, ...selIds]).valid
-        )));
-  el.btnPlace.classList.toggle('is-ready', placeReady);
   el.drawLabel.textContent = state.pool.length ? 'Взять фишку' : 'Пропустить';
 
   // Кнопка хода загорается зелёным только когда ход реально готов;
@@ -630,6 +908,23 @@ function renderBoard(locked, outlook) {
     return;
   }
 
+  const player = G.currentPlayer(state);
+  const canTake = computeCanTake(player, lockedIds);
+
+  // Во время хода существующие наборы держат свои колонки и слоты,
+  // новые встают в конец своей колонки, а причёсывание происходит между ходами.
+  const { groups, runs } = boardLayout.sync(state.board, state.tiles);
+
+  const zones = document.createElement('div');
+  zones.className = 'zones';
+  zones.append(
+    zoneEl('Группы', groups, fresh, news, canTake, 'zone-group'),
+    zoneEl('Ряды', runs, fresh, news, canTake, 'zone-run')
+  );
+  el.board.appendChild(zones);
+
+  // Легенда живёт под наборами, а не над ними: появление «ваши за этот ход»
+  // или исчезновение «новые» не сдвигает существующие ряды на столе.
   if (fresh.size || news.size) {
     const legend = document.createElement('div');
     legend.className = 'legend';
@@ -647,69 +942,6 @@ function renderBoard(locked, outlook) {
     }
     el.board.appendChild(legend);
   }
-
-  const entries = state.board.map((meld, index) => ({
-    meld,
-    index,
-    info: G.meldInfo(state, meld),
-  }));
-
-  // К каким наборам выбранные фишки подходят целиком. До первого выхода
-  // достраивать можно только собственные новые наборы.
-  const player = G.currentPlayer(state);
-  const canTake = new Set();
-  if (selection.size) {
-    const selIds = [...selection];
-    for (const entry of entries) {
-      if (entry.meld.some((id) => selection.has(id))) continue;
-      if (!player.melded && entry.meld.some((id) => lockedIds.has(id))) continue;
-      if (G.meldInfo(state, [...entry.meld, ...selIds]).valid) canTake.add(entry.index);
-    }
-  }
-
-  // Разобранный набор остаётся на своём месте в своей колонке и просто
-  // подсвечивается красным — не улетает в начало стола. Колонку выбираем
-  // по оставшимся фишкам: одинаковые числа — к группам, один цвет — к рядам.
-  const naturalsOf = (e) => G.tilesOf(state, e.meld).filter((t) => !t.joker);
-  for (const e of entries) {
-    if (e.info.valid) {
-      e.zone = e.info.type;
-      e.key =
-        e.info.type === 'group'
-          ? [e.info.values[0], 0]
-          : [
-              COLORS.indexOf(e.info.ordered.find((t) => !t.joker).color),
-              e.info.values[0],
-            ];
-      continue;
-    }
-    const n = naturalsOf(e);
-    if (n.length && n.every((t) => t.num === n[0].num)) {
-      e.zone = 'group';
-      e.key = [n[0].num, 0];
-    } else if (n.length && n.every((t) => t.color === n[0].color)) {
-      e.zone = 'run';
-      e.key = [COLORS.indexOf(n[0].color), Math.min(...n.map((t) => t.num))];
-    } else {
-      e.zone = 'repair';
-    }
-  }
-  const byKey = (a, b) => a.key[0] - b.key[0] || a.key[1] - b.key[1];
-  const groups = entries.filter((e) => e.zone === 'group').sort(byKey);
-  const runs = entries.filter((e) => e.zone === 'run').sort(byKey);
-
-  // Совсем разнобойная кучка (редкость) — чинить сверху на всю ширину.
-  for (const entry of entries.filter((e) => e.zone === 'repair')) {
-    el.board.appendChild(meldRow(entry, fresh, news, canTake));
-  }
-
-  const zones = document.createElement('div');
-  zones.className = 'zones';
-  zones.append(
-    zoneEl('Группы', groups, fresh, news, canTake),
-    zoneEl('Ряды', runs, fresh, news, canTake)
-  );
-  el.board.appendChild(zones);
 }
 
 /**
@@ -774,9 +1006,9 @@ function computeMarks(busy, player) {
   }
 }
 
-function zoneEl(title, list, fresh, news, canTake) {
+function zoneEl(title, list, fresh, news, canTake, extraClass = '') {
   const zone = document.createElement('div');
-  zone.className = 'zone';
+  zone.className = extraClass ? `zone ${extraClass}` : 'zone';
   const head = document.createElement('div');
   head.className = 'zone-head';
   head.textContent = title;
@@ -890,10 +1122,8 @@ function renderRack() {
 }
 
 /**
- * Все фишки руки должны быть видны разом, без прокрутки: при большой руке
- * уменьшаем фишки лотка так, чтобы они влезли в отведённые ряды
- * (2 в ландшафте, 3 в портрете). Ниже 26px не ужимаем — палец должен
- * попадать; в этом крайнем случае лоток прокручивается.
+ * Подгоняем фишки лотка под ширину экрана, но не сжимаем ниже 34px:
+ * палец важнее плотности, и при большой руке лоток спокойно прокручивается.
  */
 function fitRack(count, spacers = 0) {
   el.rack.style.removeProperty('--tile-w');
@@ -904,7 +1134,7 @@ function fitRack(count, spacers = 0) {
   const rows = document.body.classList.contains('land') ? 2 : 3;
   const perRow = Math.ceil(count / rows);
   const styles = getComputedStyle(el.rack);
-  const gap = parseFloat(styles.columnGap) || 4;
+  const gap = parseFloat(styles.columnGap) || 5;
   const width =
     el.rack.clientWidth -
     (parseFloat(styles.paddingLeft) || 0) -
@@ -914,8 +1144,18 @@ function fitRack(count, spacers = 0) {
 
   const fitted = (width - (perRow - 1) * gap) / perRow;
   if (fitted < tile.offsetWidth) {
-    el.rack.style.setProperty('--tile-w', `${Math.max(26, Math.floor(fitted))}px`);
+    el.rack.style.setProperty('--tile-w', `${Math.max(34, Math.floor(fitted))}px`);
   }
+}
+
+/** Мягкий признак наличия прокрутки у лотка, когда часть фишек скрыта выше/ниже. */
+function updateRackScrollHint() {
+  const area = el.rackArea;
+  if (!area) return;
+  const canUp = el.rack.scrollTop > 4;
+  const canDown = el.rack.scrollHeight - el.rack.clientHeight - el.rack.scrollTop > 4;
+  area.classList.toggle('can-scroll-up', canUp);
+  area.classList.toggle('can-scroll-down', canDown);
 }
 
 /**
@@ -927,10 +1167,14 @@ function fitRack(count, spacers = 0) {
  * остаётся на месте с подсказкой — от выбора фишки ничего не сдвигается.
  */
 function renderSelPanel() {
+  const prevTop = el.selPanel.scrollTop;
+  const prevLeft = el.selPanel.scrollLeft;
   el.selPanel.innerHTML = '';
   const idle = !state || state.phase !== 'play' || !selection.size;
   el.selPanel.classList.toggle('is-idle', idle);
   if (idle) {
+    lastRenderedCombos = [];
+    pinnedCombos = null;
     const hint = document.createElement('p');
     hint.className = 'sel-hint';
     hint.textContent = 'Нажмите на фишки — выбранное появится здесь.';
@@ -938,9 +1182,30 @@ function renderSelPanel() {
     return;
   }
 
-  el.selPanel.appendChild(selRow());
-  const combos = comboOptions();
+  // После тапа по комбинации держим тот же список чипов, пока выделение
+  // совпадает с одной из них: кнопка остаётся ровно в тех же координатах
+  // и повторный тап попадает в неё, а не в соседний элемент.
+  let combos = null;
+  if (pinnedCombos) {
+    const rackSet = new Set(G.currentPlayer(state).rack);
+    const matchesPinned = pinnedCombos.some(
+      (s) =>
+        s.tiles.length === selection.size &&
+        s.tiles.every((t) => selection.has(t.id) && rackSet.has(t.id))
+    );
+    if (matchesPinned) combos = pinnedCombos;
+    else pinnedCombos = null;
+  }
+  if (!combos) combos = comboOptions();
+  lastRenderedCombos = combos;
+
+  // Комбинации ставим ПЕРЕД строкой выбранных фишек: когда строка «Выбрано»
+  // растёт с 1 фишки до 5, кнопки комбинаций не сдвигаются ни на пиксель.
   if (combos.length) el.selPanel.appendChild(comboRow(combos));
+  el.selPanel.appendChild(selRow());
+
+  el.selPanel.scrollTop = prevTop;
+  el.selPanel.scrollLeft = prevLeft;
 }
 
 /** Строка «Выбрано: …»: тап по мини-фишке снимает её, ✕ — всё выделение. */
@@ -1008,9 +1273,11 @@ function comboRow(options) {
   label.textContent = 'Комбинации:';
   row.appendChild(label);
   for (const s of options) {
+    const ids = s.tiles.map((t) => t.id);
+    const isExact = ids.length === selection.size && ids.every((id) => selection.has(id));
     const chip = document.createElement('button');
-    chip.className = 'combo-chip';
-    chip.dataset.ids = s.tiles.map((t) => t.id).join(',');
+    chip.className = 'combo-chip' + (isExact ? ' is-active' : '');
+    chip.dataset.ids = ids.join(',');
     chip.textContent = s.tiles.map((t) => (t.joker ? '★' : t.num)).join('·');
     // Сумма очков важна только до выхода, когда идёт счёт до 30.
     if (!player.melded) {
@@ -1086,6 +1353,9 @@ function readSeries() {
 }
 
 function renderEnd() {
+  clearTileFlyers();
+  closeGameModals();
+  pinnedCombos = null;
   const winner = state.players[state.winner];
   el.overlayPass.hidden = true;
   el.toast.hidden = true;
@@ -1122,27 +1392,53 @@ function renderEnd() {
 /* ---------- действия ---------- */
 
 function toggleTile(id) {
-  if (state.phase !== 'play') return;
+  if (!state || state.phase !== 'play') return;
+  pinnedCombos = null;
   if (selection.has(id)) selection.delete(id);
   else selection.add(id);
   hintIds.clear();
-  render();
+  sound.playSelect();
+  buzz(6);
+  updateSelectionUI();
 }
 
 function selectMeld(index) {
+  if (!state || state.phase !== 'play') return;
+  pinnedCombos = null;
   state.board[index].forEach((id) => selection.add(id));
-  render();
+  hintIds.clear();
+  sound.playSelect();
+  buzz(6);
+  updateSelectionUI();
 }
 
 function placeSelection(meldIndex) {
-  if (!selection.size) return;
-  G.moveTiles(state, [...selection], meldIndex);
+  if (!state || state.phase !== 'play' || !selection.size) return;
+  const hasTarget = meldIndex >= 0 && meldIndex < state.board.length;
+  const targetPrevTiles = hasTarget ? state.board[meldIndex].slice() : null;
+  // Фишки, которые уже лежат в целевом наборе, не отрываем и не дописываем в конец:
+  // так цель всегда сохраняет свои фишки в начале массива (важно и для undo/перезагрузки).
+  const targetSet = hasTarget ? new Set(targetPrevTiles) : null;
+  const movedIds = targetSet
+    ? [...selection].filter((id) => !targetSet.has(id))
+    : [...selection];
+  if (!movedIds.length) {
+    selection.clear();
+    pinnedCombos = null;
+    updateSelectionUI();
+    return;
+  }
+  boardLayout.push();
+  G.moveTiles(state, movedIds, meldIndex);
+  boardLayout.sync(state.board, state.tiles, targetPrevTiles ? { targetPrevTiles } : undefined);
   selection.clear();
+  pinnedCombos = null;
   hintIds.clear();
-  buzz(8);
   save();
   if (maybeAutoWin()) return;
-  render();
+  sound.playPlace();
+  buzz(10);
+  render({ animate: true });
 }
 
 /**
@@ -1164,7 +1460,7 @@ function maybeAutoWin() {
  * набор») — достроить можно следующими ходами руки.
  */
 function smartPlace() {
-  if (state.phase !== 'play') return;
+  if (!state || state.phase !== 'play') return;
   if (!selection.size) {
     toast('Сначала выберите фишки — нажмите на них.');
     return;
@@ -1191,42 +1487,63 @@ function smartPlace() {
 }
 
 function toRack() {
+  if (!state || state.phase !== 'play') return;
   const locked = lockedOnBoard();
   const ids = [...selection];
   if (ids.some((id) => locked.has(id))) {
     toast('Фишки, которые уже лежали на столе, забирать на руку нельзя.', true);
     return;
   }
-  G.returnToRack(state, ids);
+  const fresh = freshOnBoard();
+  const toMove = ids.filter((id) => fresh.has(id));
+  if (!toMove.length) return;
+  boardLayout.push();
+  G.returnToRack(state, toMove);
+  boardLayout.sync(state.board, state.tiles);
   selection.clear();
+  pinnedCombos = null;
+  sound.playPlace();
+  buzz(10);
   save();
-  render();
+  render({ animate: true });
 }
 
 function doHint() {
+  if (!state || state.phase !== 'play') return;
   const outlook = firstMeldOutlook();
   const hint = findHint(state, G.tilesOf, G.currentPlayer(state), outlook);
+  // Сбрасываем класс перед повторной подсказкой, чтобы пульсация сыграла заново.
+  for (const node of el.screenGame.querySelectorAll('.tile.is-hint')) {
+    node.classList.remove('is-hint');
+  }
+  if (hint.tiles.length) void el.screenGame.offsetWidth;
   hintIds = new Set(hint.tiles);
   selection.clear();
+  pinnedCombos = null;
   toast(hint.text, !hint.found);
-  render();
+  updateSelectionUI();
 }
 
 function endTurn() {
+  if (!state || state.phase !== 'play') return;
   const result = G.endTurn(state);
   if (!result.ok) {
     toast(result.error, true);
     return;
   }
   selection.clear();
+  pinnedCombos = null;
   hintIds.clear();
   runAutoSkip();
+  boardLayout.reset(state.board, state.tiles);
   save();
+  sound.playTurnEnd(result.finished);
   buzz(14);
   render();
 }
 
 async function drawTile() {
+  if (!state || state.phase !== 'play') return;
   const hadChanges = state.history.length > 0;
   // Случайное нажатие теряет весь разложенный ход — переспрашиваем.
   if (hadChanges) {
@@ -1244,10 +1561,13 @@ async function drawTile() {
 
 /** Взять фишку без вопросов: общий финал добора и срабатывания таймера. */
 function forceDraw() {
+  if (!state || state.phase !== 'play') return;
   G.drawAndPass(state);
   selection.clear();
+  pinnedCombos = null;
   hintIds.clear();
   runAutoSkip();
+  boardLayout.reset(state.board, state.tiles);
   save();
   render();
 }
@@ -1326,6 +1646,13 @@ el.board.addEventListener('click', (e) => {
 
   const meld = e.target.closest('.meld');
 
+  // Подходящий набор (can-take) — единая посадочная площадка: тап в любое
+  // его место (включая сами фишки и «＋») сразу докладывает выбранное сюда.
+  if (meld && selection.size > 0 && meld.classList.contains('can-take')) {
+    placeSelection(Number(meld.dataset.index));
+    return;
+  }
+
   // Ячейка «＋» в конце набора — положить выбранное в него.
   if (e.target.closest('.slot-add') && meld) {
     const index = Number(meld.dataset.index);
@@ -1366,17 +1693,23 @@ el.board.addEventListener('click', (e) => {
   // Пустое место на столе — сброс выделения.
   if (selection.size) {
     selection.clear();
-    render();
+    pinnedCombos = null;
+    sound.playSelect();
+    buzz(6);
+    updateSelectionUI();
   }
 });
 
 el.rack.addEventListener('click', (e) => {
+  if (!state || state.phase !== 'play') return;
   // Промах между фишками полного лотка — выбираем ближайшую, а не «пусто».
   const tile = e.target.closest('.tile') || nearestTile(el.rack, e.clientX, e.clientY, 14);
   if (tile) toggleTile(tile.dataset.id);
 });
+el.rack.addEventListener('scroll', updateRackScrollHint, { passive: true });
 
 el.btnSort.addEventListener('click', () => {
+  if (!state || state.phase !== 'play') return;
   const modes = ['run', 'group', 'smart'];
   sortMode = modes[(modes.indexOf(sortMode) + 1) % modes.length];
   // Видимый отклик нажатия: кнопка коротко «моргает».
@@ -1397,15 +1730,23 @@ el.btnSort.addEventListener('click', () => {
   };
   state.startSnapshot = rewrite(state.startSnapshot);
   state.history = state.history.map(rewrite);
+  sound.playSelect();
+  buzz(6);
   save();
-  render();
+  render({ animate: true });
 });
 
 el.btnUndo.addEventListener('click', () => {
+  if (!state || state.phase !== 'play') return;
   if (G.undo(state)) {
+    boardLayout.pop();
+    boardLayout.sync(state.board, state.tiles);
     selection.clear();
+    pinnedCombos = null;
+    sound.playSelect();
+    buzz(6);
     save();
-    render();
+    render({ animate: true });
   }
 });
 
@@ -1414,25 +1755,42 @@ el.btnPlace.addEventListener('click', smartPlace);
 el.btnDraw.addEventListener('click', drawTile);
 el.btnEnd.addEventListener('click', endTurn);
 
-// Панель выделения над лотком: тап по комбинации выбирает её фишки целиком,
-// тап по мини-фишке снимает её, ✕ — снимает всё выделение.
+// Панель выделения: первый тап по комбинации выделяет её целиком,
+// повторный по уже выделенной — сразу выставляет; тап по мини-фишке снимает её.
 el.selPanel.addEventListener('click', (e) => {
+  if (!state || state.phase !== 'play') return;
   const combo = e.target.closest('.combo-chip');
   if (combo) {
-    selection = new Set(combo.dataset.ids.split(','));
+    const ids = combo.dataset.ids.split(',').filter(Boolean);
+    const alreadySelected =
+      ids.length === selection.size && ids.every((id) => selection.has(id));
+    if (alreadySelected) {
+      smartPlace();
+      return;
+    }
+    pinnedCombos = lastRenderedCombos.slice();
+    selection = new Set(ids);
     hintIds.clear();
-    render();
+    sound.playSelect();
+    buzz(6);
+    updateSelectionUI();
     return;
   }
   const chip = e.target.closest('.sel-chip');
   if (chip) {
+    pinnedCombos = null;
     selection.delete(chip.dataset.id);
-    render();
+    sound.playSelect();
+    buzz(6);
+    updateSelectionUI();
     return;
   }
   if (e.target.closest('.sel-clear')) {
+    pinnedCombos = null;
     selection.clear();
-    render();
+    sound.playSelect();
+    buzz(6);
+    updateSelectionUI();
   }
 });
 
@@ -1457,6 +1815,7 @@ el.btnReady.addEventListener('click', () => {
   // Игрок увидел сводку на экране передачи — счётчик автовзятий обнуляем.
   G.currentPlayer(state).autoDrawn = 0;
   G.beginTurn(state);
+  boardLayout.reset(state.board, state.tiles);
   armTurnTimer();
   save();
   render();
@@ -1464,6 +1823,7 @@ el.btnReady.addEventListener('click', () => {
 
 el.btnNewGame.addEventListener('click', () => {
   localStorage.removeItem(SAVE_KEY);
+  clearSavedLayout();
   showSetup();
 });
 
@@ -1474,8 +1834,20 @@ el.btnSeriesReset.addEventListener('click', async () => {
   el.btnSeriesReset.hidden = true;
 });
 
-$('btnMenu').addEventListener('click', () => { el.overlayMenu.hidden = false; });
+$('btnMenu').addEventListener('click', () => {
+  updateSoundButton();
+  el.overlayMenu.hidden = false;
+});
 $('btnCloseMenu').addEventListener('click', () => { el.overlayMenu.hidden = true; });
+
+el.btnSoundMenu.addEventListener('click', () => {
+  const on = sound.toggleSound();
+  updateSoundButton();
+  if (on) {
+    sound.playSelect();
+    buzz(6);
+  }
+});
 
 $('btnHintMenu').addEventListener('click', () => {
   el.overlayMenu.hidden = true;
@@ -1483,12 +1855,17 @@ $('btnHintMenu').addEventListener('click', () => {
 });
 
 $('btnResetTurn').addEventListener('click', () => {
+  if (!state || state.phase !== 'play') return;
   G.resetTurn(state);
+  boardLayout.reset(state.board, state.tiles);
   selection.clear();
+  pinnedCombos = null;
   hintIds.clear();
   el.overlayMenu.hidden = true;
+  sound.playSelect();
+  buzz(6);
   save();
-  render();
+  render({ animate: true });
   toast('Ход отменён — стол как в начале хода.');
 });
 
@@ -1522,6 +1899,8 @@ el.btnFull.addEventListener('click', async () => {
 });
 
 /* ---------- запуск ---------- */
+
+updateSoundButton();
 
 // Незаконченная партия продолжается сама — можно закрывать игру когда угодно.
 const savedGame = loadSave();
