@@ -81,7 +81,7 @@ const el = {
 let state = null;
 let selection = new Set();
 let hintIds = new Set();
-let sortMode = 'run';
+let sortMode = 'smart';
 let playerCount = 3;
 let toastTimer = null;
 let meldCache = null; // расчёт первого выхода: один раз за ход
@@ -406,7 +406,7 @@ function startGame() {
     const drew = G.resolveOpenings(state, (tiles) => bestFirstMeld(tiles, MIN_FIRST_MELD));
     rounds = Math.max(...drew);
   }
-  for (const player of state.players) player.rack = sortRack(player.rack);
+  for (const player of state.players) player.rack = orderRack(player.rack);
   state.startSnapshot = G.snapshot(state);
   enterGame();
   if (rounds > 0) {
@@ -1021,6 +1021,10 @@ function zoneEl(title, list, fresh, news, canTake, extraClass = '') {
   }
   for (const entry of list) zone.appendChild(meldRow(entry, fresh, news, canTake));
   return zone;
+}
+
+function orderRack(ids) {
+  return sortMode === 'smart' ? smartArrange(ids).order : sortRack(ids);
 }
 
 function sortRack(ids) {
@@ -1720,15 +1724,13 @@ el.btnSort.addEventListener('click', () => {
   void el.btnSort.offsetWidth;
   el.btnSort.classList.add('is-flash');
 
-  const orderOf = (ids) =>
-    sortMode === 'smart' ? smartArrange(ids).order : sortRack(ids);
   const player = G.currentPlayer(state);
-  player.rack = orderOf(player.rack);
+  player.rack = orderRack(player.rack);
   // Порядок руки — косметика. Переносим его и в снимки хода, иначе
   // «Отменить» или добор вернут старый порядок и фишки скакнут.
   const rewrite = (snap) => {
     const data = JSON.parse(snap);
-    data.racks[state.turn] = orderOf(data.racks[state.turn]);
+    data.racks[state.turn] = orderRack(data.racks[state.turn]);
     return JSON.stringify(data);
   };
   state.startSnapshot = rewrite(state.startSnapshot);
