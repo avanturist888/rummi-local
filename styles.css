@@ -850,8 +850,16 @@ button { font: inherit; color: inherit; }
  * по-прежнему живёт в «портретном» окне.
  */
 
-body.land { --tile-w: clamp(34px, 9.8vh, 42px); --gap: 5px; }
-body.land.is-rot { --tile-w: clamp(34px, 9.8vw, 42px); --gap: 5px; }
+body.land {
+  --tile-w: clamp(32px, 8.8vh, 38px);
+  --tile-h: calc(var(--tile-w) * 1.2);
+  --gap: 4px;
+}
+body.land.is-rot {
+  --tile-w: clamp(32px, 8.8vw, 38px);
+  --tile-h: calc(var(--tile-w) * 1.2);
+  --gap: 4px;
+}
 
 /* Правая колонка расширяется на вырез/индикатор iPhone, чтобы сбоку
    не оставалось пустой нерабочей полосы. */
@@ -861,31 +869,57 @@ body.land #screenGame:not([hidden]) {
     "hud   side" auto
     "board side" minmax(0, 1fr)
     "rack  side" auto
-    / minmax(0, 1fr) calc(188px + var(--safe-r));
+    / minmax(0, 1fr) calc(170px + var(--safe-r));
 }
-body.land .hud { grid-area: hud; padding-top: 6px; padding-right: 12px; }
-body.land .board { grid-area: board; padding-right: 10px; }
-body.land .rack-area { grid-area: rack; padding-bottom: 4px; padding-right: 8px; }
+body.land .hud {
+  grid-area: hud;
+  padding: calc(3px + var(--safe-t)) 8px 3px max(10px, var(--safe-l));
+  gap: 6px;
+}
+body.land .hud-turn { font-size: 14px; }
+body.land .hud-right { gap: 5px; }
+body.land .chip { padding: 3px 7px; font-size: 11.5px; border-radius: 7px; }
+body.land .pchip { padding: 3px 7px; font-size: 11.5px; border-radius: 7px; }
+body.land .icon-btn { width: 30px; height: 30px; font-size: 15px; border-radius: 8px; }
+
+body.land .board {
+  grid-area: board;
+  padding: 5px 8px 8px max(8px, var(--safe-l));
+  gap: 5px;
+}
+body.land .zone { gap: 9px; padding-bottom: 8px; }
+body.land .zone-head { font-size: 10px; line-height: 1.1; }
+body.land .meld {
+  padding: 4px 6px;
+  border-radius: 10px;
+  min-height: calc(var(--tile-h) + 10px);
+}
+body.land .meld-note { bottom: -8px; font-size: 10px; }
+
+body.land .rack-area {
+  grid-area: rack;
+  padding: 2px 6px calc(2px + var(--safe-b)) max(6px, var(--safe-l));
+}
 
 /* Боковая панель делит высоту на три части: лоток сверху, ход снизу,
    выделение — в середине. «Лоток» собран в компактную строку из трёх
-   крупных кнопок, чтобы в центре осталось место для удобных чипов. */
+   кнопок, чтобы в центре осталось место для удобных чипов. */
 body.land .actions {
   grid-area: side;
   border-top: 0;
   border-left: 1px solid var(--line);
-  padding: 6px max(8px, var(--safe-r)) 6px 8px;
-  gap: 4px;
+  padding: 4px max(6px, var(--safe-r)) 4px 6px;
+  gap: 3px;
 }
-/* В боковой панели группы получают подписи. */
+/* В боковой панели группы получают компактные подписи. */
 body.land .tools-cap {
   display: block;
-  font-size: 10.5px;
-  line-height: 1.1;
+  font-size: 9.5px;
+  line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--ink-dim);
-  padding: 1px 6px 0;
+  padding: 1px 4px 0;
 }
 body.land .tools-cap-turn { margin-top: auto; }
 /* Выделение занимает свободную середину панели: «Лоток» прижат к верху,
@@ -901,65 +935,72 @@ body.land .sel-panel {
   height: auto;
   flex: 1 1 auto;
   min-height: 0;
-  gap: 5px;
-  padding: 6px;
+  gap: 4px;
+  padding: 5px;
   overflow-x: hidden;
   overflow-y: auto;
 }
 body.land .sel-panel.is-idle { justify-content: flex-start; }
 body.land .sel-row,
-body.land .combo-row { flex-wrap: wrap; gap: 5px; }
+body.land .combo-row { flex-wrap: wrap; gap: 4px; }
 /* Раздел уже подписан «ВЫБРАНО» — второй раз в строке не надо;
    комбинации отделяются волоском, а не длинным словом. */
 body.land .sel-cap,
 body.land .combo-label { display: none; }
 body.land .combo-row {
-  padding-bottom: 5px;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--line);
 }
 body.land .sel-chip {
-  width: 28px;
-  height: 36px;
-  min-width: 28px;
-  min-height: 36px;
-  font-size: 14px;
+  width: 26px;
+  height: 32px;
+  min-width: 26px;
+  min-height: 32px;
+  font-size: 13.5px;
 }
-body.land .sel-clear { width: 30px; height: 30px; font-size: 13px; }
-body.land .combo-chip { min-height: 34px; padding: 4px 9px; font-size: 12.5px; }
+body.land .sel-clear { width: 28px; height: 28px; font-size: 12.5px; }
+body.land .combo-chip { min-height: 32px; padding: 4px 8px; font-size: 12px; }
 body.land .rack-tools {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   width: 100%;
-  border-radius: 13px;
-  padding: 3px;
+  border-radius: 11px;
+  padding: 2px;
 }
 body.land .tool-btn {
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: 1px;
   width: 100%;
-  min-height: 42px;
-  border-radius: 10px;
-  padding: 4px 2px;
-  font-size: 10.5px;
+  min-height: 38px;
+  border-radius: 9px;
+  padding: 3px 2px;
+  font-size: 10px;
   line-height: 1.1;
 }
-body.land .tool-btn .ico { font-size: 15px; line-height: 1; }
-body.land .turn-actions { flex-direction: column; gap: 5px; }
-body.land .act { width: 100%; flex: none; min-height: 46px; padding: 6px 10px; }
+body.land .tool-btn .ico { font-size: 14px; line-height: 1; }
+body.land .turn-actions { flex-direction: column; gap: 4px; }
+body.land .act {
+  width: 100%;
+  flex: none;
+  min-height: 42px;
+  padding: 5px 8px;
+  font-size: 13.5px;
+  border-radius: 11px;
+}
 /* «Выставить» — сверху, ближе к столу и лотку. */
 body.land .act-place { order: -1; }
 
 body.land .rack {
-  max-height: calc(var(--tile-h) * 2 + var(--gap) + 16px);
-  padding: 9px 4px 6px;
+  max-height: calc(var(--tile-h) * 2 + var(--gap) + 8px);
+  padding: 4px 2px 3px;
 }
 
 body.land .hud-sub { display: none; }
 body.land .zones {
   grid-template-columns:
-    calc(var(--tile-w) * 4 + var(--gap) * 3 + 22px)
+    calc(var(--tile-w) * 4 + var(--gap) * 3 + 18px)
     minmax(0, 1fr);
 }
 

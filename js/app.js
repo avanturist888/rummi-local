@@ -1122,8 +1122,9 @@ function renderRack() {
 }
 
 /**
- * Подгоняем фишки лотка под ширину экрана, но не сжимаем ниже 34px:
- * палец важнее плотности, и при большой руке лоток спокойно прокручивается.
+ * Подгоняем фишки лотка под ширину экрана, но не сжимаем ниже 32px в ландшафте
+ * (34px в обычной раскладке): палец важнее плотности, при очень большой руке
+ * лоток спокойно прокручивается.
  */
 function fitRack(count, spacers = 0) {
   el.rack.style.removeProperty('--tile-w');
@@ -1131,10 +1132,12 @@ function fitRack(count, spacers = 0) {
   const tile = el.rack.querySelector('.tile');
   if (!tile) return;
 
-  const rows = document.body.classList.contains('land') ? 2 : 3;
+  const land = document.body.classList.contains('land');
+  const rows = land ? 2 : 3;
+  const minTile = land ? 32 : 34;
   const perRow = Math.ceil(count / rows);
   const styles = getComputedStyle(el.rack);
-  const gap = parseFloat(styles.columnGap) || 5;
+  const gap = parseFloat(styles.columnGap) || 4;
   const width =
     el.rack.clientWidth -
     (parseFloat(styles.paddingLeft) || 0) -
@@ -1144,7 +1147,7 @@ function fitRack(count, spacers = 0) {
 
   const fitted = (width - (perRow - 1) * gap) / perRow;
   if (fitted < tile.offsetWidth) {
-    el.rack.style.setProperty('--tile-w', `${Math.max(34, Math.floor(fitted))}px`);
+    el.rack.style.setProperty('--tile-w', `${Math.max(minTile, Math.floor(fitted))}px`);
   }
 }
 
